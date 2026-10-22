@@ -1,0 +1,233 @@
+================================================================================================
+SNAKE RIVER CESM-LE DOWNSCALING: COST MODEL (prices retrieved 2026-10-21/22)
+================================================================================================
+
+Geometry
+  item                                              value                 
+  ------------------------------------------------  ----------------------
+  atmos box incl. 50 km buffer (km)                 850 x 600             
+    columns at 4 km / 1 km                          32,163 / 511,451      
+  WRF-Hydro box, no buffer (km)                     750 x 500             
+    1 km LSM cells / 250 m routing cells            376,251 / 6,010,004   
+  Boise MF+SF area (km2) / nest rect (km2)          4,380 / 7,445         
+    250 m nest columns                              119,128               
+  ERF 4 km parent (km), columns                     1450 x 1200, 109,263  
+  full-basin box (to 47.3N,119.3W) cost multiplier  x1.45 on atmos columns
+
+Benchmark-derived rates (formula: cost/simhour = rate * sum N_i*(1000/dx_i))
+  quantity                                                 value                         
+  -------------------------------------------------------  ------------------------------
+  Dry Creek units (1-km col-step equiv.)                   64,857                        
+  SCHNAPS CPU rate (core-h per unit-simhour)               3.795e-05                     
+  Wolverine units                                          1,001,982                     
+  SCHNAPS L40S rate, Wolverine (GPU-h/unit-simh)           2.079e-08                     
+  implied cores per L40S: Wolverine / Standard / geo-mean  1,825 / 26 / 220              
+  WRF core-s per column-step (CONUS404, 51 lev)            9.38e-04                      
+  WRF-Hydro core-h per 250 m cell per simh (L/C/H)         2.94e-08 / 5.89e-08 / 1.18e-07
+
+Cross-check, 1 km box, per member-year: WRF ~841k core-h; SCHNAPS (Dry Creek CPU rate) ~170k core-h = 1/5 of WRF;
+  an ICAR-like 1/140-1/800 would be 6,009-1,052 core-h. Wolverine-rate GPU-h: 93 L40S-h.
+
+[a) 4 km, 81 yr + 1 spin-up] workload (x dev factor 1.1/1.25/1.5)
+  level    SCHNAPS L40S-h  (SCHNAPS if CPU core-h)  WRF core-h (mem1)  ERF A100-h  WRF-Hydro core-h
+  -------  --------------  -----------------------  -----------------  ----------  ----------------
+  low      5,155           9.41M                    954k               1,988       5.59M           
+  central  49k             10.69M                   1.36M              8,473       12.72M          
+  high     485k            12.83M                   2.60M              33k         30.52M          
+  archive (compressed): SCHNAPS 8.6 TB, ERF 2.8 TB, WRF-Hydro 110.7 TB, total 122.0 TB
+
+[a) 4 km, 81 yr] cost (USD; Jetstream2 in SU). storage/yr = tiered {'hot': 0.1, 'warm': 0.3, 'cold': 0.6} + 50 TB egress
+  level    platform         SCH GPU     SCHNAPS  ERF    WRF-Hydro CPU  compute  storage/yr  compute+1yr storage / notes                         
+  -------  ---------------  ----------  -------  -----  -------------  -------  ----------  ----------------------------------------------------
+  low      AWS on-demand    L40S        9,594    5,457  287k           302k     14k         316k                                                
+  low      AWS spot         L40S        6,290    2,663  144k           153k     14k         167k                                                
+  low      GCP on-demand    L4          13k      7,303  229k           249k     14k         263k                                                
+  low      GCP spot         RTXPRO6000  5,717    4,382  246k           256k     14k         270k                                                
+  low      Jetstream2 (SU)  A100        254k     127k   5.59M          5.98M    40TB cap    Maximize; ~0.3 wall-yr @2 A100-eq; AWS value $302k  
+  central  AWS on-demand    L40S        91k      23k    653k           766k     14k         781k                                                
+  central  AWS spot         L40S        78k      13k    326k           417k     14k         431k                                                
+  central  GCP on-demand    L4          119k     31k    520k           670k     14k         684k                                                
+  central  GCP spot         RTXPRO6000  54k      19k    558k           631k     14k         645k                                                
+  central  Jetstream2 (SU)  A100        2.40M    542k   12.72M         15.65M   40TB cap    Maximize; ~0.7 wall-yr @8 A100-eq; AWS value $766k  
+  high     AWS on-demand    L40S        903k     89k    1.57M          2.56M    14k         2.57M                                               
+  high     AWS spot         L40S        888k     55k    783k           1.73M    14k         1.74M                                               
+  high     GCP on-demand    L4          1.18M    120k   1.25M          2.55M    14k         2.57M                                               
+  high     GCP spot         RTXPRO6000  538k     72k    1.34M          1.95M    14k         1.96M                                               
+  high     Jetstream2 (SU)  A100        23.88M   2.08M  30.52M         56.48M   40TB cap    Maximize; ~11.6 wall-yr @4 A100-eq; AWS value $2.56M
+
+[b) 1 km, 81 yr + 1 spin-up] workload (x dev factor 1.1/1.25/1.5)
+  level    SCHNAPS L40S-h  (SCHNAPS if CPU core-h)  WRF core-h (mem1)  ERF A100-h  WRF-Hydro core-h
+  -------  --------------  -----------------------  -----------------  ----------  ----------------
+  low      328k            598.59M                  63.95M             133k        5.59M           
+  central  3.10M           680.21M                  90.83M             568k        12.72M          
+  high     30.86M          816.25M                  174.40M            2.18M       30.52M          
+  archive (compressed): SCHNAPS 136.0 TB, ERF 44.2 TB, WRF-Hydro 110.7 TB, total 290.8 TB
+
+[b) 1 km, 81 yr] cost (USD; Jetstream2 in SU). storage/yr = tiered {'hot': 0.1, 'warm': 0.3, 'cold': 0.6} + 50 TB egress
+  level    platform         SCH GPU     SCHNAPS    ERF      WRF-Hydro CPU  compute    storage/yr  compute+1yr storage / notes                           
+  -------  ---------------  ----------  ---------  -------  -------------  ---------  ----------  ------------------------------------------------------
+  low      AWS on-demand    L40S        610k       366k     287k           1.26M      28k         1.29M                                                 
+  low      AWS spot         L40S        400k       178k     144k           722k       28k         750k                                                  
+  low      GCP on-demand    L4          800k       489k     229k           1.52M      26k         1.54M                                                 
+  low      GCP spot         RTXPRO6000  364k       294k     246k           903k       26k         929k                                                  
+  low      Jetstream2 (SU)  A100        16.14M     8.53M    5.59M          30.27M     40TB cap    Maximize; ~2.7 wall-yr @16 A100-eq; AWS value $1.26M  
+  central  AWS on-demand    L40S        5.76M      1.56M    653k           7.97M      28k         8.00M                                                 
+  central  AWS spot         L40S        4.95M      857k     326k           6.14M      28k         6.16M                                                 
+  central  GCP on-demand    L4          7.55M      2.09M    520k           10.16M     26k         10.18M                                                
+  central  GCP spot         RTXPRO6000  3.43M      1.25M    558k           5.24M      26k         5.27M                                                 
+  central  Jetstream2 (SU)  A100        152.40M    36.33M   12.72M         201.45M    40TB cap    Maximize; ~42.1 wall-yr @8 A100-eq; AWS value $7.97M  
+  high     AWS on-demand    L40S        57.43M     5.98M    1.57M          64.98M     28k         65.00M                                                
+  high     AWS spot         L40S        56.47M     3.66M    783k           60.91M     28k         60.94M                                                
+  high     GCP on-demand    L4          75.26M     8.01M    1.25M          84.52M     26k         84.54M                                                
+  high     GCP spot         RTXPRO6000  34.22M     4.80M    1.34M          40.37M     26k         40.39M                                                
+  high     Jetstream2 (SU)  A100        1,519.18M  139.52M  30.52M         1,689.22M  40TB cap    Maximize; ~739.1 wall-yr @4 A100-eq; AWS value $64.98M
+
+[c) 1 km+250 m, 81 yr + 1 spin-up] workload (x dev factor 1.1/1.25/1.5)
+  level    SCHNAPS L40S-h  (SCHNAPS if CPU core-h)  WRF core-h (mem1)  ERF A100-h  WRF-Hydro core-h
+  -------  --------------  -----------------------  -----------------  ----------  ----------------
+  low      633k            1,156.28M                120.50M            251k        5.59M           
+  central  5.98M           1,313.95M                171.17M            1.07M       12.72M          
+  high     59.61M          1,576.75M                328.64M            4.11M       30.52M          
+  archive (compressed): SCHNAPS 167.6 TB, ERF 54.4 TB, WRF-Hydro 110.7 TB, total 332.8 TB
+
+[c) 1 km+250 m, 81 yr] cost (USD; Jetstream2 in SU). storage/yr = tiered {'hot': 0.1, 'warm': 0.3, 'cold': 0.6} + 50 TB egress
+  level    platform         SCH GPU     SCHNAPS    ERF      WRF-Hydro CPU  compute    storage/yr  compute+1yr storage / notes                             
+  -------  ---------------  ----------  ---------  -------  -------------  ---------  ----------  --------------------------------------------------------
+  low      AWS on-demand    L40S        1.18M      689k     287k           2.16M      31k         2.19M                                                   
+  low      AWS spot         L40S        773k       336k     144k           1.25M      31k         1.28M                                                   
+  low      GCP on-demand    L4          1.54M      922k     229k           2.70M      29k         2.72M                                                   
+  low      GCP spot         RTXPRO6000  702k       553k     246k           1.50M      29k         1.53M                                                   
+  low      Jetstream2 (SU)  A100        31.19M     16.07M   5.59M          52.85M     40TB cap    Maximize; ~5.3 wall-yr @16 A100-eq; AWS value $2.16M    
+  central  AWS on-demand    L40S        11.13M     2.94M    653k           14.72M     31k         14.75M                                                  
+  central  AWS spot         L40S        9.57M      1.61M    326k           11.51M     31k         11.54M                                                  
+  central  GCP on-demand    L4          14.58M     3.93M    520k           19.03M     29k         19.06M                                                  
+  central  GCP spot         RTXPRO6000  6.63M      2.36M    558k           9.55M      29k         9.58M                                                   
+  central  Jetstream2 (SU)  A100        294.38M    68.47M   12.72M         375.57M    40TB cap    Maximize; ~80.8 wall-yr @8 A100-eq; AWS value $14.72M   
+  high     AWS on-demand    L40S        110.93M    11.28M   1.57M          123.77M    31k         123.80M                                                 
+  high     AWS spot         L40S        109.08M    6.89M    783k           116.76M    31k         116.79M                                                 
+  high     GCP on-demand    L4          145.38M    15.09M   1.25M          161.72M    29k         161.75M                                                 
+  high     GCP spot         RTXPRO6000  66.11M     9.05M    1.34M          76.50M     29k         76.53M                                                  
+  high     Jetstream2 (SU)  A100        2,934.58M  262.91M  30.52M         3,228.01M  40TB cap    Maximize; ~1424.8 wall-yr @4 A100-eq; AWS value $123.77M
+
+[a) 4 km, 95 yr + 1 spin-up] workload (x dev factor 1.1/1.25/1.5)
+  level    SCHNAPS L40S-h  (SCHNAPS if CPU core-h)  WRF core-h (mem1)  ERF A100-h  WRF-Hydro core-h
+  -------  --------------  -----------------------  -----------------  ----------  ----------------
+  low      6,036           11.02M                   1.12M              2,328       6.55M           
+  central  57k             12.52M                   1.59M              9,919       14.89M          
+  high     568k            15.02M                   3.05M              38k         35.73M          
+  archive (compressed): SCHNAPS 10.0 TB, ERF 3.3 TB, WRF-Hydro 129.8 TB, total 143.1 TB
+
+[a) 4 km, 95 yr] cost (USD; Jetstream2 in SU). storage/yr = tiered {'hot': 0.1, 'warm': 0.3, 'cold': 0.6} + 50 TB egress
+  level    platform         SCH GPU     SCHNAPS  ERF    WRF-Hydro CPU  compute  storage/yr  compute+1yr storage / notes                         
+  -------  ---------------  ----------  -------  -----  -------------  -------  ----------  ----------------------------------------------------
+  low      AWS on-demand    L40S        11k      6,389  336k           354k     16k         370k                                                
+  low      AWS spot         L40S        7,364    3,118  168k           179k     16k         194k                                                
+  low      GCP on-demand    L4          15k      8,550  268k           291k     16k         307k                                                
+  low      GCP spot         RTXPRO6000  6,694    5,130  287k           299k     16k         315k                                                
+  low      Jetstream2 (SU)  A100        297k     149k   6.55M          7.00M    40TB cap    Maximize; ~0.4 wall-yr @2 A100-eq; AWS value $354k  
+  central  AWS on-demand    L40S        106k     27k    764k           897k     16k         913k                                                
+  central  AWS spot         L40S        91k      15k    382k           488k     16k         504k                                                
+  central  GCP on-demand    L4          139k     36k    609k           784k     16k         800k                                                
+  central  GCP spot         RTXPRO6000  63k      22k    653k           738k     16k         754k                                                
+  central  Jetstream2 (SU)  A100        2.80M    635k   14.89M         18.33M   40TB cap    Maximize; ~0.8 wall-yr @8 A100-eq; AWS value $897k  
+  high     AWS on-demand    L40S        1.06M    105k   1.83M          3.00M    16k         3.01M                                               
+  high     AWS spot         L40S        1.04M    64k    917k           2.02M    16k         2.04M                                               
+  high     GCP on-demand    L4          1.39M    140k   1.46M          2.99M    16k         3.00M                                               
+  high     GCP spot         RTXPRO6000  630k     84k    1.57M          2.28M    16k         2.30M                                               
+  high     Jetstream2 (SU)  A100        27.96M   2.44M  35.73M         66.13M   40TB cap    Maximize; ~13.5 wall-yr @4 A100-eq; AWS value $3.00M
+
+[b) 1 km, 95 yr + 1 spin-up] workload (x dev factor 1.1/1.25/1.5)
+  level    SCHNAPS L40S-h  (SCHNAPS if CPU core-h)  WRF core-h (mem1)  ERF A100-h  WRF-Hydro core-h
+  -------  --------------  -----------------------  -----------------  ----------  ----------------
+  low      384k            700.78M                  74.86M             156k        6.55M           
+  central  3.62M           796.34M                  106.34M            665k        14.89M          
+  high     36.13M          955.61M                  204.17M            2.55M       35.73M          
+  archive (compressed): SCHNAPS 159.5 TB, ERF 51.8 TB, WRF-Hydro 129.8 TB, total 341.1 TB
+
+[b) 1 km, 95 yr] cost (USD; Jetstream2 in SU). storage/yr = tiered {'hot': 0.1, 'warm': 0.3, 'cold': 0.6} + 50 TB egress
+  level    platform         SCH GPU     SCHNAPS    ERF      WRF-Hydro CPU  compute    storage/yr  compute+1yr storage / notes                           
+  -------  ---------------  ----------  ---------  -------  -------------  ---------  ----------  ------------------------------------------------------
+  low      AWS on-demand    L40S        714k       428k     336k           1.48M      32k         1.51M                                                 
+  low      AWS spot         L40S        468k       209k     168k           845k       32k         877k                                                  
+  low      GCP on-demand    L4          936k       573k     268k           1.78M      29k         1.81M                                                 
+  low      GCP spot         RTXPRO6000  426k       344k     287k           1.06M      29k         1.09M                                                 
+  low      Jetstream2 (SU)  A100        18.90M     9.98M    6.55M          35.43M     40TB cap    Maximize; ~3.2 wall-yr @16 A100-eq; AWS value $1.48M  
+  central  AWS on-demand    L40S        6.74M      1.82M    764k           9.33M      32k         9.36M                                                 
+  central  AWS spot         L40S        5.80M      1.00M    382k           7.18M      32k         7.21M                                                 
+  central  GCP on-demand    L4          8.84M      2.44M    609k           11.89M     29k         11.92M                                                
+  central  GCP spot         RTXPRO6000  4.02M      1.46M    653k           6.14M      29k         6.17M                                                 
+  central  Jetstream2 (SU)  A100        178.42M    42.54M   14.89M         235.84M    40TB cap    Maximize; ~49.2 wall-yr @8 A100-eq; AWS value $9.33M  
+  high     AWS on-demand    L40S        67.23M     7.00M    1.83M          76.07M     32k         76.10M                                                
+  high     AWS spot         L40S        66.11M     4.28M    917k           71.31M     32k         71.34M                                                
+  high     GCP on-demand    L4          88.11M     9.38M    1.46M          98.95M     29k         98.98M                                                
+  high     GCP spot         RTXPRO6000  40.06M     5.62M    1.57M          47.26M     29k         47.29M                                                
+  high     Jetstream2 (SU)  A100        1,778.55M  163.34M  35.73M         1,977.62M  40TB cap    Maximize; ~865.3 wall-yr @4 A100-eq; AWS value $76.07M
+
+[c) 1 km+250 m, 95 yr + 1 spin-up] workload (x dev factor 1.1/1.25/1.5)
+  level    SCHNAPS L40S-h  (SCHNAPS if CPU core-h)  WRF core-h (mem1)  ERF A100-h  WRF-Hydro core-h
+  -------  --------------  -----------------------  -----------------  ----------  ----------------
+  low      742k            1,353.69M                141.08M            294k        6.55M           
+  central  7.00M           1,538.29M                200.39M            1.25M       14.89M          
+  high     69.79M          1,845.95M                384.75M            4.81M       35.73M          
+  archive (compressed): SCHNAPS 196.6 TB, ERF 63.9 TB, WRF-Hydro 129.8 TB, total 390.3 TB
+
+[c) 1 km+250 m, 95 yr] cost (USD; Jetstream2 in SU). storage/yr = tiered {'hot': 0.1, 'warm': 0.3, 'cold': 0.6} + 50 TB egress
+  level    platform         SCH GPU     SCHNAPS    ERF      WRF-Hydro CPU  compute    storage/yr  compute+1yr storage / notes                             
+  -------  ---------------  ----------  ---------  -------  -------------  ---------  ----------  --------------------------------------------------------
+  low      AWS on-demand    L40S        1.38M      807k     336k           2.52M      36k         2.56M                                                   
+  low      AWS spot         L40S        905k       394k     168k           1.47M      36k         1.50M                                                   
+  low      GCP on-demand    L4          1.81M      1.08M    268k           3.16M      33k         3.19M                                                   
+  low      GCP spot         RTXPRO6000  822k       648k     287k           1.76M      33k         1.79M                                                   
+  low      Jetstream2 (SU)  A100        36.51M     18.81M   6.55M          61.87M     40TB cap    Maximize; ~6.2 wall-yr @16 A100-eq; AWS value $2.52M    
+  central  AWS on-demand    L40S        13.03M     3.44M    764k           17.23M     36k         17.27M                                                  
+  central  AWS spot         L40S        11.20M     1.89M    382k           13.47M     36k         13.51M                                                  
+  central  GCP on-demand    L4          17.07M     4.60M    609k           22.28M     33k         22.32M                                                  
+  central  GCP spot         RTXPRO6000  7.76M      2.76M    653k           11.18M     33k         11.21M                                                  
+  central  Jetstream2 (SU)  A100        344.65M    80.16M   14.89M         439.69M    40TB cap    Maximize; ~94.6 wall-yr @8 A100-eq; AWS value $17.23M   
+  high     AWS on-demand    L40S        129.87M    13.20M   1.83M          144.91M    36k         144.94M                                                 
+  high     AWS spot         L40S        127.71M    8.07M    917k           136.69M    36k         136.73M                                                 
+  high     GCP on-demand    L4          170.20M    17.67M   1.46M          189.33M    33k         189.36M                                                 
+  high     GCP spot         RTXPRO6000  77.39M     10.60M   1.57M          89.56M     33k         89.59M                                                  
+  high     Jetstream2 (SU)  A100        3,435.61M  307.80M  35.73M         3,779.14M  40TB cap    Maximize; ~1668.1 wall-yr @4 A100-eq; AWS value $144.91M
+
+HEADLINE (central, 2020-2100 + spin-up; USD; compute one-off)
+  scenario       platform       compute                archive: storage+egress/yr  total (compute + 5 yr storage)
+  -------------  -------------  ---------------------  --------------------------  ------------------------------
+  a) 4 km        AWS on-demand  766k                   122 TB: 14k                 838k                          
+  a) 4 km        AWS spot       417k                   122 TB: 14k                 488k                          
+  a) 4 km        GCP on-demand  670k                   122 TB: 14k                 742k                          
+  a) 4 km        GCP spot       631k                   122 TB: 14k                 702k                          
+  a) 4 km        Jetstream2     15.65M SU (Maximize)   ODP $0 / OSN <=50 TB        ~0.7 wall-yr; worth ~$766k    
+  b) 1 km        AWS on-demand  7.97M                  291 TB: 28k                 8.11M                         
+  b) 1 km        AWS spot       6.14M                  291 TB: 28k                 6.27M                         
+  b) 1 km        GCP on-demand  10.16M                 291 TB: 26k                 10.29M                        
+  b) 1 km        GCP spot       5.24M                  291 TB: 26k                 5.37M                         
+  b) 1 km        Jetstream2     201.45M SU (Maximize)  ODP $0 / OSN <=50 TB        ~42.1 wall-yr; worth ~$7.97M  
+  c) 1 km+250 m  AWS on-demand  14.72M                 333 TB: 31k                 14.87M                        
+  c) 1 km+250 m  AWS spot       11.51M                 333 TB: 31k                 11.66M                        
+  c) 1 km+250 m  GCP on-demand  19.03M                 333 TB: 29k                 19.18M                        
+  c) 1 km+250 m  GCP spot       9.55M                  333 TB: 29k                 9.69M                         
+  c) 1 km+250 m  Jetstream2     375.57M SU (Maximize)  ODP $0 / OSN <=50 TB        ~80.8 wall-yr; worth ~$14.72M 
+
+Jetstream2 tier needed (central, 81 yr): GPU-only (WRF-Hydro on Borah) vs everything
+  scenario       GPU SU (SCHNAPS+ERF)  tier        CPU SU (WRF-Hydro)  all SU   tier (all + storage)
+  -------------  --------------------  ----------  ------------------  -------  --------------------
+  a) 4 km        2.94M                 Accelerate  12.72M              15.65M   Maximize            
+  b) 1 km        188.73M               Maximize    12.72M              201.45M  Maximize            
+  c) 1 km+250 m  362.85M               Maximize    12.72M              375.57M  Maximize            
+
+Jetstream2 GPU flavors for SCHNAPS
+  flavor    SU/h  rel. speed vs L40S [ASSUME]  SU per L40S-hour  availability                   
+  --------  ----  ---------------------------  ----------------  -------------------------------
+  g3.large  32    0.65                         49                no per-tier card cap           
+  g3.xl     64    1.3                          49                2-4 cards per project          
+  g4.xl     84    1.0                          84                NAIRR only (0 for ACCESS tiers)
+  g5.xl     128   2.0                          64                2 cards, Discover and up       
+
+Proposal ~100 TB tiered plan, per year
+  size    option                     storage  egress  total          
+  ------  -------------------------  -------  ------  ---------------
+  100 TB  AWS                        7,973    4,500   12k            
+  100 TB  GCP                        6,864    6,000   13k            
+  100 TB  AWS all-Standard           28k      4,500   -              
+  100 TB  AWS Open Data Sponsorship  0        0       0 (if accepted)
