@@ -98,3 +98,21 @@ the Ubuntu archive over HTTPS, PyPI, and the HRRR bucket `noaa-hrrr-bdp-pds.s3.a
 - docs.jetstream-cloud.org did not resolve from this session. The Jetstream2 facts were read from the docs' source repository (gitlab.com/jetstream-cloud/jetstream2/docs, commit of 2026-10-13): flavors, vGPU versus passthrough, featured images, Docker and the NVIDIA toolkit, `module load apptainer`, Exosphere steps, `exouser` and `ubuntu`, and the CLI commands.
 - The AWS guide uses the Deep Learning Base OSS NVIDIA driver AMI (Ubuntu 22.04) through its SSM parameter, a one-time spot request, and the prices already cited in `cost/cost_model.py`.
 - No cloud resources were created, and no images were pushed.
+
+## Task 7: Second session, reachability recheck (2026-10-22, from 13:41 UTC)
+
+- Elapsed: about 10 min.
+- Same sandbox shape (4 cores, 15 GB RAM, about 31 GB free disk at start, Docker 29.9.1, no GPU), different network policy. Checked with `curl -sI` and `git ls-remote`:
+
+| Host | Result |
+| --- | --- |
+| `codeberg.org` | Reachable. `git ls-remote` sees SCHNAPS `v1.1.1` at `648b00e148f2` |
+| `git.wsl.ch` | Reachable over git (`git ls-remote snow-models/snowpack.git` works; a bare `curl -I` on the repo URL gets 403 from the server, not the proxy) |
+| `support.hdfgroup.org` | Reachable (200) |
+| `developer.download.nvidia.com` | Reachable (`/hpc-sdk/24.5/` answers 307) |
+| `nvcr.io` | Denied (proxy 403 on CONNECT). `containers/pin-digests.sh` cannot pin the NVHPC base |
+| `www2.mmm.ucar.edu` | Denied (proxy 403) |
+| `www.fftw.org` | Denied (proxy 403) |
+| Docker Hub (`registry-1.docker.io`) | Reachable but answering 429 Too Many Requests (anonymous pull limit), so `pin-digests.sh` printed UNREACHABLE for every image |
+
+- Workaround for Docker Hub: `mirror.gcr.io/library/ubuntu@sha256:0a9887931b0e...` is Google's Docker Hub mirror and serves the same content-addressed digest the Dockerfiles pin. As before, a local copy of that base got the proxy CA and HTTPS apt sources (sandbox only, never pushed), passed as `BASE_IMAGE`; the manifest of images built here therefore names that local base.
