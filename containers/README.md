@@ -21,9 +21,8 @@ and pinned dependency commits, minimum driver) and `/opt/manifest-packages.txt` 
 
 ## Pinning
 
-- Base images are pinned by digest. `pin-digests.sh` prints the current digests.
-  `nvcr.io/nvidia/nvhpc` (the SCHNAPS GPU base) was unreachable from the machine these were
-  written on, so its default is a tag. Add `@sha256:...` from `pin-digests.sh` before a release build.
+- Base images are pinned by digest. `pin-digests.sh` prints the current digests. The NVHPC
+  digests for the SCHNAPS GPU base were added on 2026-10-22, once nvcr.io was reachable.
 - Model sources are pinned by tag or commit and checked in the build: SCHNAPS `v1.1.1` (the build
   stops if the source is elsewhere), SNOWPACK `2a099259447c` (what v1.1.1's `cmake/snowpack.cmake`
   pins), ERF `5fa15bdc5e7f` with the submodule commits it records, WRF `v4.7.1` (`f52c197`), WPS

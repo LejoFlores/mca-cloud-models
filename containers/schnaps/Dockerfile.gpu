@@ -9,13 +9,13 @@
 # for every listed cc, so no JIT is needed on those GPUs):
 #   default  NVHPC 24.5 / CUDA 12.4  driver >= 550.54.14  Borah L40S (driver 550), Jetstream2, AWS
 #   newer    NVHPC 26.3 / CUDA 13.1  driver >= 580     what upstream SCHNAPS CI and its prebuilt image use
-#     --build-arg NVHPC_IMAGE=nvcr.io/nvidia/nvhpc:26.3-devel-cuda13.1-ubuntu24.04@sha256:<digest> \
+#     --build-arg NVHPC_IMAGE=nvcr.io/nvidia/nvhpc:26.3-devel-cuda13.1-ubuntu24.04@sha256:a7beb2a5f70156c0d3298772e160b8ab97bd22b34ffdec89613ec2d48b606870 \
 #     --build-arg NVHPC_VER=26.3 --build-arg CUDA_VER=13.1
-# Pin NVHPC_IMAGE by digest before a release build: containers/pin-digests.sh prints it.
+# Digests (manifest lists) from containers/pin-digests.sh on 2026-10-22.
 #
 # GPU_CC is a comma list for nvfortran -gpu=: cc80 = A100 (Jetstream2 g3, AWS p4d), cc86 = A10G
 # (AWS g5), cc89 = L40S (AWS g6e, Borah). One binary carries code for all of them.
-ARG NVHPC_IMAGE=nvcr.io/nvidia/nvhpc:24.5-devel-cuda12.4-ubuntu22.04
+ARG NVHPC_IMAGE=nvcr.io/nvidia/nvhpc:24.5-devel-cuda12.4-ubuntu22.04@sha256:17b2fe8eebc7704b0c584876ee75ef6b12032101b4f8a8e28fde7e45413ed912
 
 # ---------------------------------------------------------------------------------------------
 FROM ${NVHPC_IMAGE} AS deps
