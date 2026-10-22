@@ -22,7 +22,12 @@ FROM ${NVHPC_IMAGE} AS deps
 ARG NVHPC_IMAGE
 ARG NVHPC_VER=24.5
 ARG CUDA_VER=12.4
-ENV DEBIAN_FRONTEND=noninteractive BASE_IMAGE=${NVHPC_IMAGE} NVHPC_VER=${NVHPC_VER} CUDA_VER=${CUDA_VER}
+# Host CPU target. Without -tp, NVHPC tunes for the build machine (AVX-512 on a Cascade Lake
+# builder), which faults on the AMD EPYC hosts of AWS g5 and Jetstream2. haswell = AVX2 + FMA,
+# which every target host has. CMake and autoconf pick these up for the NetCDF stack and SCHNAPS.
+ARG HOST_TP=haswell
+ENV DEBIAN_FRONTEND=noninteractive BASE_IMAGE=${NVHPC_IMAGE} NVHPC_VER=${NVHPC_VER} CUDA_VER=${CUDA_VER} \
+    HOST_TP=${HOST_TP} CFLAGS=-tp=${HOST_TP} CXXFLAGS=-tp=${HOST_TP} FFLAGS=-tp=${HOST_TP} FCFLAGS=-tp=${HOST_TP}
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git curl ca-certificates python3-pip make m4 autoconf automake libtool pkg-config file zlib1g-dev \
  && rm -rf /var/lib/apt/lists/* \
@@ -95,11 +100,13 @@ RUN set -e; F=$SCHNAPS_FETCH \
 # Link check: every requested cc must be in the binary (cuobjdump lists the embedded SASS).
 RUN set -e; cuobjdump --list-elf bin/SCHNAPS_gpu | tee /opt/schnaps-gpu-elf.txt | head; \
     for cc in $(echo $GPU_CC | tr , ' '); do grep -q "sm_${cc#cc}" /opt/schnaps-gpu-elf.txt \
-      || { echo "no sm_${cc#cc} code in SCHNAPS_gpu"; exit 1; }; done
+      || { echo "no sm_${cc#cc} code in SCHNAPS_gpu"; exit 1; }; done; \
+    n=$(objdump -d --no-show-raw-insn bin/SCHNAPS_gpu | grep -c '%zmm' || true); \
+    case "$HOST_TP" in haswell|zen2|zen3|px) [ "$n" -eq 0 ] || { echo "$n AVX-512 instructions in SCHNAPS_gpu with -tp=$HOST_TP"; exit 1; };; esac
 COPY schnaps/run-tests.sh /opt/schnaps/
 RUN { echo "schnaps_ref $(cat $SCHNAPS_FETCH/REF)"; sed 's/^/pin /' $SCHNAPS_FETCH/PINS; \
       echo "schnaps_build gpu nvfortran OpenACC MODE=release GPU_CC=$GPU_CC"; \
-      echo "nvhpc $NVHPC_VER cuda $CUDA_VER"; \
+      echo "nvhpc $NVHPC_VER cuda $CUDA_VER host_tp $HOST_TP"; \
       case $CUDA_VER in 12.*) echo "min_driver 550.54.14 (CUDA $CUDA_VER; >= 525.60.13 with CUDA minor-version compatibility)";; \
                         13.*) echo "min_driver 580 (CUDA $CUDA_VER)";; *) echo "min_driver see CUDA $CUDA_VER release notes";; esac; \
       echo "gpu_runtime_validation PENDING (built without a GPU)"; } | write-manifest.sh schnaps-gpu

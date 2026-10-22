@@ -51,6 +51,7 @@ Useful build arguments:
 | --- | --- | --- | --- |
 | SCHNAPS GPU | `NVHPC_IMAGE`, `NVHPC_VER`, `CUDA_VER` | NVHPC 24.5, CUDA 12.4 | CUDA follows the NVHPC image. For newer drivers use `nvcr.io/nvidia/nvhpc:26.3-devel-cuda13.1-ubuntu24.04`, `NVHPC_VER=26.3` and `CUDA_VER=13.1` (driver 580 or newer; this matches upstream's prebuilt image). Borah's driver 550 needs CUDA 12.4 or older |
 | SCHNAPS GPU | `GPU_CC` | `cc80,cc86,cc89` | A100, A10G and L40S in one binary. The build fails if `cuobjdump` does not find SASS for each one |
+| SCHNAPS GPU | `HOST_TP` | `haswell` | nvfortran's host CPU target (`-tp`). Without it, NVHPC tunes for the build machine, and a build on an AVX-512 Intel host faults on AMD EPYC Rome or Milan hosts (AWS g5, Jetstream2). With `haswell`, `zen2`, `zen3` or `px`, the build fails if `SCHNAPS_gpu` contains AVX-512 instructions |
 | ERF GPU | `CUDA_DEVEL`, `CUDA_RUNTIME` | `nvidia/cuda:12.4.1-*-ubuntu22.04@sha256:...` | The 12.8.1 digests are in the Dockerfile header |
 | ERF GPU | `CUDA_ARCH`, `KOKKOS_ARCH` | `8.0`, `AMPERE80` | ERF's RRTMGP goes through EKAT and Kokkos, and Kokkos builds CUDA code for one architecture. Use `8.9 ADA89` for L40S and `8.6 AMPERE86` for A10G. sm_80 code also runs on 8.6 and 8.9, but is not tuned for them |
 | all | `J` | 4 | Parallel compile jobs |
@@ -112,7 +113,7 @@ the source builds in the sibling repositories.
 | Image | Built here | Ran here | GPU runtime |
 | --- | --- | --- | --- |
 | SCHNAPS CPU | Yes (20 min, second session), with sources from codeberg.org and git.wsl.ch | 20/20 unit tests pass (4 ranks, 54 s), and the Standard integration case passes (4 ranks, 338 s; Borah: 82 s on 10 ranks) | n/a |
-| SCHNAPS GPU | No. The NVHPC base is now pinned by digest, but its layers come from `layers.nvcr.io`, which this sandbox's proxy denies | No | PENDING |
+| SCHNAPS GPU (NVHPC 24.5, CUDA 12.4, `GPU_CC=cc80,cc86,cc89`, `HOST_TP=haswell`) | Yes (22 min, image 17 GB). `cuobjdump` shows sm_80, sm_86 and sm_89 cubins, every shared library resolves (`libcuda` is loaded from the driver at run time), and there are no AVX-512 instructions in `SCHNAPS_gpu` or the NetCDF/HDF5 libraries. The manifest records min driver 550.54.14 | No GPU | PENDING |
 | ERF CPU | Yes (16 min) | Radiation (RRTMGP) and NoahMP_Ideal regression cases pass, under Docker and Apptainer | n/a |
 | ERF GPU, sm_80 | Yes (56 min). `cuobjdump` shows sm_80 cubins, and every library resolves except the driver's `libcuda.so.1`. The image export then ran out of sandbox disk | No GPU | PENDING |
 | ERF GPU, sm_89 (`CUDA_ARCH=8.9 KOKKOS_ARCH=ADA89`) | Yes (65 min, cache-only build, no image export). sm_89 cubins, all libraries resolve, and the manifest records min driver 550.54.14 | No GPU | PENDING |

@@ -153,3 +153,19 @@ the Ubuntu archive over HTTPS, PyPI, and the HRRR bucket `noaa-hrrr-bdp-pds.s3.a
 - nvcr.io is still denied (proxy 403), so `containers/pin-digests.sh` cannot pin `nvcr.io/nvidia/nvhpc:24.5-devel-cuda12.4-ubuntu22.04`, and the NVHPC base cannot be pulled. The SCHNAPS GPU build, its cc80/86/89 `cuobjdump` link check and its digest pin remain to do.
 - developer.download.nvidia.com is reachable and serves the HPC SDK 24.5 / CUDA 12.4 tarball (6.8 GB). A local base built from it could stand in for the link check, but that changes how the image is made. It was not done; it is for the PI to decide.
 - Later the same day the PI opened nvcr.io. `containers/pin-digests.sh` then returned the NVHPC digests, and the Dockerfile now pins them: 24.5-devel-cuda12.4-ubuntu22.04 at `sha256:17b2fe8eebc7...` (amd64 `sha256:0e57ca811c92...`), and 26.3-devel-cuda13.1-ubuntu24.04 at `sha256:a7beb2a5f701...`. The image is 7.05 GB compressed. Its pull still failed: nvcr.io redirects layer downloads to `layers.nvcr.io`, which the proxy denies (403 on CONNECT). So the SCHNAPS GPU build and its link check still wait on access to `layers.nvcr.io`. To make room, the validated `schnaps:1.1.1-cpu` and `wps-real` images and the build cache were deleted from the sandbox; both rebuild from the committed Dockerfiles.
+
+## Task 11: SCHNAPS GPU image built, link check passed (2026-10-22, 17:08-18:34 UTC)
+
+- Elapsed: about 1 h 25 min. Two NVHPC pulls (12 and 10 min), two builds (22 min each), and diagnosis in between.
+- The PI opened `layers.nvcr.io`. The pinned NVHPC 24.5 / CUDA 12.4 base pulled (7.05 GB compressed, 14 GB unpacked), and a local copy got the proxy CA as before.
+- Built `schnaps:1.1.1-gpu-cuda12.4` (17 GB) from `containers/schnaps/Dockerfile.gpu` with its defaults: `GPU_CC=cc80,cc86,cc89`, plus `HOST_TP=haswell` (below). Stage times: NetCDF stack with nvc/nvfortran 12 min, sources 80 s, SCHNAPS 8 min.
+- Checks passed:
+  - `cuobjdump --list-elf` lists sm_80, sm_86 and sm_89 cubins.
+  - `ldd` resolves every library. `libcuda` is not a link-time dependency; the OpenACC runtime loads it from the driver.
+  - There are no AVX-512 (`zmm`) instructions in `SCHNAPS_gpu`, `libnetcdff`, `libnetcdf` or `libhdf5`.
+  - The manifest records NVHPC 24.5, CUDA 12.4, `host_tp haswell`, min driver 550.54.14 (525.60.13 with minor-version compatibility) and `gpu_runtime_validation PENDING`.
+- Not run: anything on a GPU. GPU runtime stays PENDING until real hardware.
+- Broke:
+  1. `layers.nvcr.io` was denied at first: nvcr.io serves manifests but redirects layer downloads there. The PI opened it.
+  2. Disk: Docker 29's default containerd image store kept the 7 GB of compressed layers plus the 14 GB unpacked SDK, and BuildKit then began unpacking a third copy. The build failed with "no space left on device" (likely the same cause as the ERF GPU export failure in task 2). The sandbox's dockerd was switched to the classic overlay2 store (`/etc/docker/daemon.json`: `"storage-driver": "overlay2"`, `"features": {"containerd-snapshotter": false}`), which keeps one unpacked copy, and the base was pulled again. This is a sandbox setting, not part of the repository.
+  3. The first build worked but tuned the host code for the build machine. nvfortran without `-tp` targets the CPU it runs on (Cascade Lake here), so `SCHNAPS_gpu` had 3,353 AVX-512 instructions and `libnetcdff` 678. That binary would probably die with an illegal instruction on AMD EPYC Rome (AWS g5) and Milan (Jetstream2) hosts. Borah never showed this because it builds natively. The Dockerfile now sets `HOST_TP=haswell` (AVX2 + FMA) through CFLAGS/CXXFLAGS/FFLAGS/FCFLAGS, and the link-check step fails if AVX-512 shows up. The rebuild has none.
