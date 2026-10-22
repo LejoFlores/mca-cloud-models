@@ -70,7 +70,7 @@ ENV PATH=/opt/erf/bin:/opt/deps/bin:$PATH LD_LIBRARY_PATH=/opt/deps/lib \
 RUN set -e; ! ldd /opt/erf/bin/erf_exec | grep -v libcuda.so | grep "not found"; \
     cuda=$(ls -d /usr/local/cuda-* | sed 's/.*cuda-//'); \
     { echo "erf_commit $(git -C /opt/erf/src/ERF rev-parse HEAD)"; \
-      git -C /opt/erf/src/ERF submodule status | awk '{print "erf_submodule "$2" "$1}'; \
+      git -C /opt/erf/src/ERF submodule status | grep -v '^-' | awk '{print "erf_submodule "$2" "$1}'; \
       echo "erf_build gpu CUDA $cuda CUDA_ARCH=${CUDA_ARCH} Kokkos_ARCH_${KOKKOS_ARCH} MPI NetCDF NoahMP RRTMGP"; \
       echo "build_image ${CUDA_RUNTIME}"; \
       case $cuda in 12.4) echo "min_driver 550.54.14 (>= 525.60.13 with CUDA minor-version compatibility)";; \

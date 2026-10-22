@@ -43,7 +43,7 @@ RUN fetch_erf.sh ${ERF_COMMIT} /opt/erf/src/ERF
 RUN build_erf.sh cpu /opt/erf/src/ERF /opt/erf
 COPY erf/run-example.sh /opt/erf/
 RUN { echo "erf_commit $(git -C /opt/erf/src/ERF rev-parse HEAD)"; \
-      git -C /opt/erf/src/ERF submodule status | awk '{print "erf_submodule "$2" "$1}'; \
+      git -C /opt/erf/src/ERF submodule status | grep -v '^-' | awk '{print "erf_submodule "$2" "$1}'; \
       echo "erf_build cpu MPI NetCDF NoahMP RRTMGP"; echo "gpu none"; } | write-manifest.sh erf-cpu
 ENV PATH=/opt/erf/bin:$PATH ERF_DATA=/opt/erf/data
 WORKDIR /work

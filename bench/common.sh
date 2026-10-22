@@ -2,6 +2,7 @@
 #
 # Environment (all optional):
 #   RUNTIME      docker (default) or apptainer
+#   APPTAINER_FLAGS  extra flags for apptainer exec (e.g. --no-privs when running as root)
 #   IMAGE        docker image ref, or a .sif path for apptainer
 #   NGPU         GPUs to use (0 = CPU run)
 #   NP           MPI ranks for CPU runs (default: physical cores)
@@ -20,10 +21,13 @@ physical_cores() {
 detect_instance() {
   [ -n "${INSTANCE:-}" ] && { echo "$INSTANCE"; return; }
   # AWS IMDSv2 (1 s timeout; nothing happens off AWS)
-  local tok; tok=$(curl -s -m 1 -X PUT http://169.254.169.254/latest/api/token \
+  # (-f and the format check keep a proxy's or another cloud's error page out of the CSV)
+  local tok it; tok=$(curl -sf -m 1 -X PUT http://169.254.169.254/latest/api/token \
     -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null) || true
   if [ -n "$tok" ]; then
-    curl -s -m 1 -H "X-aws-ec2-metadata-token: $tok" http://169.254.169.254/latest/meta-data/instance-type && return
+    it=$(curl -sf -m 1 -H "X-aws-ec2-metadata-token: $tok" \
+      http://169.254.169.254/latest/meta-data/instance-type 2>/dev/null) || true
+    [[ "$it" =~ ^[a-z0-9-]+\.[a-z0-9]+$ ]] && { echo "$it"; return; }
   fi
   echo "unknown"
 }
@@ -52,7 +56,7 @@ run_in_image() {
   local case=$1; shift
   if [ "$RUNTIME" = apptainer ]; then
     local nv=(); [ "$NGPU" -gt 0 ] && nv=(--nv)
-    apptainer exec "${nv[@]}" --cleanenv --env NGPU=$NGPU,NP=${NP:-} \
+    apptainer exec "${nv[@]}" ${APPTAINER_FLAGS:-} --cleanenv --env NGPU=$NGPU,NP=${NP:-} \
       --bind "$case:/case" --bind "$BENCH:/bench:ro" "$IMAGE" "$@"
   else
     local gpus=(); [ "$NGPU" -gt 0 ] && gpus=(--gpus "$NGPU")
