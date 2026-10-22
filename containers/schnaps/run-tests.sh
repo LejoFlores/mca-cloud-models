@@ -1,7 +1,9 @@
 #!/bin/bash
 # SCHNAPS unit tests and the Standard integration case (schnaps-borah run/test_cpu.slurm).
 #   docker run --rm schnaps:1.1.1-cpu /opt/schnaps/run-tests.sh
-# The integration runner launches min(nproc/2, 10) MPI ranks. Test outputs go to the image's
+# Unit tests run on 4 ranks. The integration runner (tests/scripts/lib/mpi_np.sh) takes
+# `nproc --all`, halves it above 8 and clamps it to 2-10, so 4 ranks on a 4-core machine and 10 on
+# a Borah node. Test outputs go to the image's
 # writable layer (or, under Apptainer, use --writable-tmpfs).
 set -uo pipefail
 cd ${SCHNAPS_SRC:?}

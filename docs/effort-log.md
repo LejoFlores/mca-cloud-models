@@ -116,3 +116,17 @@ the Ubuntu archive over HTTPS, PyPI, and the HRRR bucket `noaa-hrrr-bdp-pds.s3.a
 | Docker Hub (`registry-1.docker.io`) | Reachable but answering 429 Too Many Requests (anonymous pull limit), so `pin-digests.sh` printed UNREACHABLE for every image |
 
 - Workaround for Docker Hub: `mirror.gcr.io/library/ubuntu@sha256:0a9887931b0e...` is Google's Docker Hub mirror and serves the same content-addressed digest the Dockerfiles pin. As before, a local copy of that base got the proxy CA and HTTPS apt sources (sandbox only, never pushed), passed as `BASE_IMAGE`; the manifest of images built here therefore names that local base.
+
+## Task 8: SCHNAPS CPU image built and tested (2026-10-22, 13:43-14:12 UTC)
+
+- Elapsed: about 30 min. Build 20 min (apt 4 min, HDF5/netCDF stack 8 min, source fetch 42 s, SCHNAPS compile and tester 5 min, image export 2 min), tests 7 min.
+- Built `schnaps:1.1.1-cpu` (2.95 GB) from `containers/schnaps/Dockerfile.cpu` unchanged, with SCHNAPS, its Noah-MP fork and the test data from codeberg.org and SNOWPACK from git.wsl.ch. The schnaps-borah SNOWPACK tarball was not needed. The tree checks passed: SCHNAPS at `v1.1.1` (`f4218edbb0d3`), SNOWPACK at `2a099259447c`.
+- The manifest records rte-rrtmgp v1.9.2, rrtmgp-data v1.9, icar_supporting_files `8b20ace82edb`, test-drive v0.6.1, noahmp `a3c314771e7b` and test-data `832b5714246c`, plus HDF5 1.14.6, netcdf-c 4.10.0, netcdf-fortran 4.6.1, gfortran 12.3.0 and Open MPI 4.1.2.
+- `docker run --rm schnaps:1.1.1-cpu /opt/schnaps/run-tests.sh`:
+  - 20 of 20 unit tests passed, on 4 ranks, in 54 s.
+  - `integration.Standard` passed in 338 s on 4 ranks. SCHNAPS's `tests/scripts/lib/mpi_np.sh` sizes the run from `nproc --all`, halving it above 8 and clamping it to 2-10.
+  - Borah's reference is 82 s on 10 ranks. In rank-seconds that is 820 on Borah against 1,350 here, on a 4-core cloud sandbox while an HRRR download ran alongside. This is a correctness check, not a benchmark.
+- Broke:
+  1. Docker Hub rate limiting (429), worked around with `mirror.gcr.io` at the same digest (task 7).
+  2. Nothing in the SCHNAPS build itself.
+  3. `run-tests.sh`'s header said the integration case uses min(nproc/2, 10) ranks, which was wrong; corrected. Inside the image `nproc` prints 1, because GNU `nproc` honors `OMP_NUM_THREADS=1`. SCHNAPS uses `nproc --all`, so it is unaffected.
