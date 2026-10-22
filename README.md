@@ -13,8 +13,9 @@ The goals:
 | Path | What |
 | --- | --- |
 | `cost/` | Cost model for the full original ensemble across AWS, Google Cloud and Jetstream2 (`cost_model.py`, standard library only). `cost_summary.md` explains the estimates and `output.txt` holds the script's output |
-| `containers/` | Dockerfiles and Apptainer definitions (in progress) |
-| `bench/` | Benchmark harness and results (in progress) |
+| `containers/` | Dockerfiles and Apptainer definitions for SCHNAPS (CPU, GPU), ERF (CPU, GPU) and WPS/real.exe; see `containers/README.md` for what was validated |
+| `bench/` | Benchmark harness for the Dry Creek Dec 2015 12 h case. It writes `bench/results/*.csv`, which `cost/cost_model.py --measured` reads |
+| `docs/` | `jetstream2.md` and `aws.md` (how to run the benchmark there), and `effort-log.md` (each task: time spent and what broke) |
 
 ## Related repositories
 
