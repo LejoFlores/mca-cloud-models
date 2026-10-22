@@ -1,0 +1,21 @@
+# Apptainer image built from the local Docker image wps-real:4.6.0-4.7.1 (build that first; see containers/README.md).
+#   apptainer build wps-real-4.6.0-4.7.1.sif containers/wps/wps-real.def
+# Equivalent without this file:  apptainer build wps-real-4.6.0-4.7.1.sif docker-daemon://wps-real:4.6.0-4.7.1
+# The Docker ENV (PATH, LD_LIBRARY_PATH, OMPI_*, ...) carries over. GPU images need --nv at run time.
+Bootstrap: docker-daemon
+From: wps-real:4.6.0-4.7.1
+
+%labels
+    org.opencontainers.image.source https://github.com/LejoFlores/mca-cloud-models
+    org.opencontainers.image.title wps-real-4.6.0-4.7.1
+
+%help
+    Versions are in /opt/manifest.txt:  apptainer exec wps-real-4.6.0-4.7.1.sif cat /opt/manifest.txt
+    Run:  apptainer exec --bind CASE:/case --bind GEOG:/geog wps-real-4.6.0-4.7.1.sif /bench/inner/wps_real.sh ...
+
+%runscript
+    exec "$@"
+
+%test
+    cat /opt/manifest.txt
+    command -v real.exe && command -v metgrid.exe

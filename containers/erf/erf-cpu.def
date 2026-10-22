@@ -1,0 +1,21 @@
+# Apptainer image built from the local Docker image erf:5fa15bd-cpu (build that first; see containers/README.md).
+#   apptainer build erf-5fa15bd-cpu.sif containers/erf/erf-cpu.def
+# Equivalent without this file:  apptainer build erf-5fa15bd-cpu.sif docker-daemon://erf:5fa15bd-cpu
+# The Docker ENV (PATH, LD_LIBRARY_PATH, OMPI_*, ...) carries over. GPU images need --nv at run time.
+Bootstrap: docker-daemon
+From: erf:5fa15bd-cpu
+
+%labels
+    org.opencontainers.image.source https://github.com/LejoFlores/mca-cloud-models
+    org.opencontainers.image.title erf-5fa15bd-cpu
+
+%help
+    Versions are in /opt/manifest.txt:  apptainer exec erf-5fa15bd-cpu.sif cat /opt/manifest.txt
+    Example:  apptainer exec erf-5fa15bd-cpu.sif /opt/erf/run-example.sh radiation
+
+%runscript
+    exec "$@"
+
+%test
+    cat /opt/manifest.txt
+    command -v erf_exec

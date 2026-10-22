@@ -1,0 +1,21 @@
+# Apptainer image built from the local Docker image erf:5fa15bd-cuda12.4-sm80 (build that first; see containers/README.md).
+#   apptainer build erf-5fa15bd-cuda12.4-sm80.sif containers/erf/erf-gpu.def
+# Equivalent without this file:  apptainer build erf-5fa15bd-cuda12.4-sm80.sif docker-daemon://erf:5fa15bd-cuda12.4-sm80
+# The Docker ENV (PATH, LD_LIBRARY_PATH, OMPI_*, ...) carries over. GPU images need --nv at run time.
+Bootstrap: docker-daemon
+From: erf:5fa15bd-cuda12.4-sm80
+
+%labels
+    org.opencontainers.image.source https://github.com/LejoFlores/mca-cloud-models
+    org.opencontainers.image.title erf-5fa15bd-cuda12.4-sm80
+
+%help
+    Versions are in /opt/manifest.txt:  apptainer exec erf-5fa15bd-cuda12.4-sm80.sif cat /opt/manifest.txt
+    Run:  apptainer exec --nv erf-5fa15bd-cuda12.4-sm80.sif mpirun -np 1 erf_exec inputs
+
+%runscript
+    exec "$@"
+
+%test
+    cat /opt/manifest.txt
+    command -v erf_exec

@@ -1,0 +1,21 @@
+# Apptainer image built from the local Docker image schnaps:1.1.1-cpu (build that first; see containers/README.md).
+#   apptainer build schnaps-1.1.1-cpu.sif containers/schnaps/schnaps-cpu.def
+# Equivalent without this file:  apptainer build schnaps-1.1.1-cpu.sif docker-daemon://schnaps:1.1.1-cpu
+# The Docker ENV (PATH, LD_LIBRARY_PATH, OMPI_*, ...) carries over. GPU images need --nv at run time.
+Bootstrap: docker-daemon
+From: schnaps:1.1.1-cpu
+
+%labels
+    org.opencontainers.image.source https://github.com/LejoFlores/mca-cloud-models
+    org.opencontainers.image.title schnaps-1.1.1-cpu
+
+%help
+    Versions are in /opt/manifest.txt:  apptainer exec schnaps-1.1.1-cpu.sif cat /opt/manifest.txt
+    Tests:  apptainer exec --writable-tmpfs schnaps-1.1.1-cpu.sif /opt/schnaps/run-tests.sh
+
+%runscript
+    exec "$@"
+
+%test
+    cat /opt/manifest.txt
+    SCHNAPS --help >/dev/null 2>&1 || command -v SCHNAPS
