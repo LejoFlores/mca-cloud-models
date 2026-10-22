@@ -47,8 +47,10 @@ GEOG_DIR=/data/WPS_GEOG WPS_IMAGE=wps-real:4.6.0-4.7.1 bench/stage_drycreek.sh e
   4.7.1 stops with "pal, linear is about as low as we go".
 - **`diff_opt` and `km_opt`.** WRF 4.7.1 real.exe refuses a namelist that lacks either. erf-borah's
   `setup/namelist.input` sets neither. They choose WRF's own turbulence closure, which ERF does not
-  use, but the template needs them before real.exe runs. Pick values in erf-borah; the 2026-10-22 staging used
-  `diff_opt = 2, 2, 2` and `km_opt = 4, 4, 2` in the staged copy only.
+  use, but the template needs them before real.exe runs (`share/module_check_a_mundo.F` aborts when
+  either is unset). erf-borah branch `namelist-diff-km-opt` sets `diff_opt = 2, 2, 2` and
+  `km_opt = 4, 4, 2`, the values the 2026-10-22 staging ran with. Until that branch merges, add them to
+  the staged `$CASE_DIR/erf/setup/namelist.input`.
 
 Layout after staging:
 

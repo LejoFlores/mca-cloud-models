@@ -112,7 +112,7 @@ the source builds in the sibling repositories.
 | Image | Built here | Ran here | GPU runtime |
 | --- | --- | --- | --- |
 | SCHNAPS CPU | Yes (20 min, second session), with sources from codeberg.org and git.wsl.ch | 20/20 unit tests pass (4 ranks, 54 s), and the Standard integration case passes (4 ranks, 338 s; Borah: 82 s on 10 ranks) | n/a |
-| SCHNAPS GPU | No. nvcr.io is still denied in the second session, so there is no NVHPC base and no NVHPC digest | No | PENDING |
+| SCHNAPS GPU | No. The NVHPC base is now pinned by digest, but its layers come from `layers.nvcr.io`, which this sandbox's proxy denies | No | PENDING |
 | ERF CPU | Yes (16 min) | Radiation (RRTMGP) and NoahMP_Ideal regression cases pass, under Docker and Apptainer | n/a |
 | ERF GPU, sm_80 | Yes (56 min). `cuobjdump` shows sm_80 cubins, and every library resolves except the driver's `libcuda.so.1`. The image export then ran out of sandbox disk | No GPU | PENDING |
 | ERF GPU, sm_89 (`CUDA_ARCH=8.9 KOKKOS_ARCH=ADA89`) | Yes (65 min, cache-only build, no image export). sm_89 cubins, all libraries resolve, and the manifest records min driver 550.54.14 | No GPU | PENDING |
