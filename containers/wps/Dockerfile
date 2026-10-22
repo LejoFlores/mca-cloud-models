@@ -50,7 +50,8 @@ RUN git -c advice.detachedHead=false clone -q --depth 1 -b ${JASPER_TAG} https:/
  && cmake -S /tmp/jasper -B /tmp/jasper/b -DCMAKE_INSTALL_PREFIX=/opt/deps -DCMAKE_INSTALL_LIBDIR=lib \
       -DJAS_ENABLE_DOC=OFF -DJAS_ENABLE_PROGRAMS=OFF -DJAS_ENABLE_OPENGL=OFF -DJAS_ENABLE_LIBJPEG=OFF \
  && cmake --build /tmp/jasper/b -j${J} && cmake --install /tmp/jasper/b && rm -rf /tmp/jasper
-ENV NETCDF=/opt/deps HDF5=/opt/deps JASPERLIB=/opt/deps/lib JASPERINC=/opt/deps/include \
+# No HDF5=... here: with it set, WRF also links -lhdf5_fortran, which this C-only HDF5 lacks.
+ENV NETCDF=/opt/deps JASPERLIB=/opt/deps/lib JASPERINC=/opt/deps/include \
     WRF_DIR=/opt/wrf/WRF WPS_DIR=/opt/wrf/WPS
 # WRF: configure option 34 = GNU (gfortran/gcc) dmpar, nesting 1 = basic. Only real.exe is used.
 RUN git -c advice.detachedHead=false clone -q --depth 1 --recurse-submodules --shallow-submodules \
