@@ -3,9 +3,11 @@
 # AMReX, Noah-MP, RRTMGP, and EKAT (which brings Kokkos) recursively. Submodule commits are the
 # ones the ERF commit records.   fetch_erf.sh <commit> <dest>
 set -euo pipefail
-# EKAT's own submodules (Catch2, kokkos, ...) use SSH URLs; fetch them over HTTPS instead.
-export GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=advice.detachedHead GIT_CONFIG_VALUE_0=false \
-       GIT_CONFIG_KEY_1=url.https://github.com/.insteadOf GIT_CONFIG_VALUE_1=git@github.com:
+# EKAT's own submodules (Catch2, kokkos, ...) use SSH URLs; fetch them over HTTPS instead. A
+# temporary global config, because git submodule does not pass GIT_CONFIG_COUNT/KEY_n on.
+export GIT_CONFIG_GLOBAL=$(mktemp)
+git config --global advice.detachedHead false
+git config --global url.https://github.com/.insteadOf git@github.com:
 C=$1; D=$2
 git init -q $D && cd $D
 git remote add origin https://github.com/erf-model/ERF.git
