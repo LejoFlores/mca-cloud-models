@@ -60,10 +60,13 @@ RUN git -c advice.detachedHead=false clone -q --depth 1 --recurse-submodules --s
  && printf '34\n1\n' | ./configure > configure.log 2>&1 \
  && ./compile -j ${J} em_real > compile.log 2>&1; \
     tail -n 20 ${WRF_DIR}/compile.log; ls -l ${WRF_DIR}/main/real.exe ${WRF_DIR}/main/wrf.exe
-# WPS: configure option 3 = Linux x86_64, gfortran (dmpar)
+# WPS: configure option 3 = Linux x86_64, gfortran (dmpar). WPS's configure adds -lnetcdff only
+# when it finds a static libnetcdff.a; this stack is shared-only, so add it to configure.wps.
 RUN git -c advice.detachedHead=false clone -q --depth 1 -b ${WPS_TAG} https://github.com/wrf-model/WPS.git ${WPS_DIR} \
  && cd ${WPS_DIR} && [ "$(git rev-parse HEAD)" = "${WPS_COMMIT}" ] \
  && printf '3\n' | ./configure > configure.log 2>&1 \
+ && sed -i 's|-L$(NETCDF)/lib  *-lnetcdf$|-L$(NETCDF)/lib -lnetcdff -lnetcdf|' configure.wps \
+ && grep -q -- '-lnetcdff' configure.wps \
  && ./compile > compile.log 2>&1; \
     tail -n 5 ${WPS_DIR}/compile.log; ls -l ${WPS_DIR}/geogrid.exe ${WPS_DIR}/ungrib.exe ${WPS_DIR}/metgrid.exe
 RUN { echo "wrf ${WRF_TAG} $(git -C ${WRF_DIR} rev-parse HEAD) configure=34(GNU dmpar) target=em_real"; \
