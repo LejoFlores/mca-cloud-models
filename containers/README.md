@@ -112,9 +112,9 @@ the source builds in the sibling repositories.
 
 | Image | Built here | Ran here | GPU runtime |
 | --- | --- | --- | --- |
-| SCHNAPS CPU | Dependency stage only. SCHNAPS source is blocked: this machine's network policy denies codeberg.org | No | n/a |
-| SCHNAPS GPU | No. nvcr.io and NVIDIA's download site are denied, so there is no NVHPC | No | PENDING |
+| SCHNAPS CPU | Yes (20 min, second session), with sources from codeberg.org and git.wsl.ch | 20/20 unit tests pass (4 ranks, 54 s), and the Standard integration case passes (4 ranks, 338 s; Borah: 82 s on 10 ranks) | n/a |
+| SCHNAPS GPU | No. nvcr.io is still denied in the second session, so there is no NVHPC base and no NVHPC digest | No | PENDING |
 | ERF CPU | Yes (16 min) | Radiation (RRTMGP) and NoahMP_Ideal regression cases pass, under Docker and Apptainer | n/a |
 | ERF GPU, sm_80 | Yes (56 min). `cuobjdump` shows sm_80 cubins, and every library resolves except the driver's `libcuda.so.1`. The image export then ran out of sandbox disk | No GPU | PENDING |
 | ERF GPU, sm_89 (`CUDA_ARCH=8.9 KOKKOS_ARCH=ADA89`) | Yes (65 min, cache-only build, no image export). sm_89 cubins, all libraries resolve, and the manifest records min driver 550.54.14 | No GPU | PENDING |
-| WPS/real.exe | Yes (18 min). geogrid, ungrib, metgrid and real.exe all link | ungrib decodes a real HRRR hour. geogrid needs the WPS static data, which is blocked here | n/a |
+| WPS/real.exe | Yes (18 min; 51 min in the second session, sharing the CPU) | Second session: the full Dry Creek chain ran (geogrid on a 149 MB subset of the static data, ungrib and metgrid on 13 cropped HRRR hours, real.exe on 4 ranks), writing `wrfinput_d01..d03` (123x123, 128x136, 240x280, 60 levels) and `wrfbdy_d01` (12 times, with moisture). It needed two fixes, in `bench/README.md` | n/a |

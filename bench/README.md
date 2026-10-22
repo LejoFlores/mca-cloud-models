@@ -15,7 +15,7 @@ git clone git@github.com:LejoFlores/schnaps-borah.git ~/schnaps-borah    # priva
 git clone https://github.com/LejoFlores/erf-borah.git ~/erf-borah
 export CASE_DIR=/data/drycreek SCHNAPS_BORAH=~/schnaps-borah ERF_BORAH=~/erf-borah
 bench/stage_drycreek.sh schnaps     # domains + namelists, and 13 hourly HRRR forcing files (~70 MB)
-bench/stage_drycreek.sh erf-hrrr    # 13 HRRR GRIB2 hours for WPS (~420 MB each; ~a few MB with wgrib2 on PATH)
+bench/stage_drycreek.sh erf-hrrr    # 13 HRRR GRIB2 hours for WPS (~420 MB each; ~3.5 MB with wgrib2 on PATH)
 GEOG_DIR=/data/WPS_GEOG WPS_IMAGE=wps-real:4.6.0-4.7.1 bench/stage_drycreek.sh erf-wps
 ```
 
@@ -31,6 +31,24 @@ GEOG_DIR=/data/WPS_GEOG WPS_IMAGE=wps-real:4.6.0-4.7.1 bench/stage_drycreek.sh e
 - **WPS static data.** geogrid needs the WRF geography (`geog_high_res_mandatory`, from
   www2.mmm.ucar.edu), unpacked into `GEOG_DIR`. erf-borah's `setup/schnaps_topo_to_wps.py`
   optionally adds SCHNAPS's 30 m terrain; then set `GEOGRES=schnaps_topo+default` and `GEOGRID_TBL`.
+  The full set is 2.8 GB to download and about 29 GB unpacked. Dry Creek needs 149 MB of it:
+  list the tarball, unpack the `index` files, then unpack only the tiles over the domain:
+  ```bash
+  tar tzf geog_high_res_mandatory.tar.gz | grep -v '/\._' > members.txt
+  tar xzf geog_high_res_mandatory.tar.gz -C $GEOG_PARENT --wildcards '*/index'
+  python3 bench/geog_subset.py members.txt $GEOG_PARENT 42.0 -118.3 45.4 -114.1 > keep.txt
+  tar xzf geog_high_res_mandatory.tar.gz -C $GEOG_PARENT -T keep.txt   # GEOG_DIR=$GEOG_PARENT/WPS_GEOG
+  ```
+- **Crop HRRR before WPS.** Put `wgrib2` on PATH for `erf-hrrr`. Without it, ungrib writes full-CONUS
+  intermediate files of 4.2 GB per hour (about 55 GB for the 12 h window). Cropped, the 13 hours
+  take 45 MB.
+- **Sea-level pressure.** `inner/wps_real.sh` maps PMSL to HRRR's PRMSL (GRIB2 0/3/1), the field
+  `hrrr_wps.py` fetches, because `Vtable.raphrrr` expects MSLMA (0/3/198). Without PMSL, real.exe
+  4.7.1 stops with "pal, linear is about as low as we go".
+- **`diff_opt` and `km_opt`.** WRF 4.7.1 real.exe refuses a namelist that lacks either. erf-borah's
+  `setup/namelist.input` sets neither. They choose WRF's own turbulence closure, which ERF does not
+  use, but the template needs them before real.exe runs. Pick values in erf-borah; the 2026-10-22 staging used
+  `diff_opt = 2, 2, 2` and `km_opt = 4, 4, 2` in the staged copy only.
 
 Layout after staging:
 

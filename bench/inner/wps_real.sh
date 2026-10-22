@@ -5,7 +5,7 @@
 # Mounts: /case (CASE_DIR; HRRR GRIB in /case/erf/hrrr, erf-borah setup/ templates in /case/erf/setup),
 #         /geog (WPS static geography). GEOGRES (default "default"), NP (MPI ranks, default nproc).
 set -euo pipefail
-START=$1; END=$2; GEOGRES=${GEOGRES:-default}; NP=${NP:-$(nproc)}
+START=$1; END=$2; GEOGRES=${GEOGRES:-default}; NP=${NP:-$(nproc --all)}   # plain nproc obeys OMP_NUM_THREADS=1
 C=/case/erf; T=$C/setup
 fill() {
   local y0=${START:0:4} m0=${START:5:2} d0=${START:8:2} h0=${START:11:2}
@@ -21,7 +21,12 @@ fill $T/namelist.wps namelist.wps
 ln -sf $WPS_DIR/geogrid/GEOGRID.TBL.ARW geogrid/GEOGRID.TBL
 [ -n "${GEOGRID_TBL:-}" ] && ln -sf $GEOGRID_TBL geogrid/GEOGRID.TBL     # custom table with schnaps_topo
 ln -sf $WPS_DIR/metgrid/METGRID.TBL.ARW metgrid/METGRID.TBL
-ln -sf $WPS_DIR/ungrib/Variable_Tables/Vtable.raphrrr Vtable
+# Vtable.raphrrr takes sea-level pressure from MSLMA (GRIB2 0/3/198); hrrr_wps.py fetches PRMSL
+# (0/3/1). Without PMSL in met_em, real.exe 4.7.1 stops with "pal, linear is about as low as we go".
+sed 's/|  0  |  3  | 198 | 101 |/|  0  |  3  |   1 | 101 |/' \
+  $WPS_DIR/ungrib/Variable_Tables/Vtable.raphrrr > Vtable.raphrrr-prmsl
+grep -q '|  0  |  3  |   1 | 101 |' Vtable.raphrrr-prmsl || { echo "PMSL line not patched in Vtable"; exit 1; }
+ln -sf Vtable.raphrrr-prmsl Vtable
 [ -f geo_em.d03.nc ] || mpirun --oversubscribe -np $(( NP < 4 ? NP : 4 )) geogrid.exe
 rm -f GRIBFILE.* HRRR:*
 $WPS_DIR/link_grib.csh $C/hrrr/hrrr.*.grib2

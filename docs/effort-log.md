@@ -130,3 +130,25 @@ the Ubuntu archive over HTTPS, PyPI, and the HRRR bucket `noaa-hrrr-bdp-pds.s3.a
   1. Docker Hub rate limiting (429), worked around with `mirror.gcr.io` at the same digest (task 7).
   2. Nothing in the SCHNAPS build itself.
   3. `run-tests.sh`'s header said the integration case uses min(nproc/2, 10) ranks, which was wrong; corrected. Inside the image `nproc` prints 1, because GNU `nproc` honors `OMP_NUM_THREADS=1`. SCHNAPS uses `nproc --all`, so it is unaffected.
+
+## Task 9: ERF Dry Creek inputs staged (2026-10-22, 13:47-15:31 UTC)
+
+- Elapsed: about 1 h 45 min, overlapping task 8. HRRR download 45 min including retries, WPS image build 51 min, WPS + real.exe 2 min per attempt (four attempts).
+- www2.mmm.ucar.edu was opened by the PI partway through the session. TLS verification then failed, because the proxy passes UCAR's own certificate through and the sandbox CA store (122 certificates) lacks its root, emSign Root CA - G1. The download was verified against the Mozilla bundle from Ubuntu 22.04's `ca-certificates` package (20260816ubuntu0.22.04.1, 242 certificates), installed through apt. Verification was never turned off.
+- Staged into `CASE_DIR` (not in git):
+  - WPS static data: `geog_high_res_mandatory.tar.gz` (2,772,782,816 bytes, sha256 `89b026b9db0a...`). Only the tiles over Dry Creek plus 0.7° were unpacked, 149 MB instead of about 29 GB, with the new `bench/geog_subset.py`.
+  - HRRR: 13 hours from the AWS archive via erf-borah `hrrr_wps.py`, 580 records each. Hours 22Z and 03Z came from the 7 h lead. The hours were cropped with wgrib2 3.6.0, built from source because Ubuntu has no package, from 5.1 GB to 45 MB.
+  - geogrid, ungrib, metgrid and real.exe ran in `wps-real:4.6.0-4.7.1` through `bench/stage_drycreek.sh erf-wps`. They wrote `wrfinput_d01` (123x123), `wrfinput_d02` (128x136) and `wrfinput_d03` (240x280), each with 60 levels, and `wrfbdy_d01` with 12 boundary times and QCLOUD/QRAIN/QICE/QSNOW/QGRAUP boundaries. "SUCCESS COMPLETE REAL_EM INIT" on 4 ranks.
+- Not run: ERF on these inputs. The ERF CPU image is not in this sandbox, a 12 h 50 m case is GPU-sized, and the brief asked for staging only.
+- Broke:
+  1. HRRR byte-range reads were cut off through the proxy six times (IncompleteRead, RemoteDisconnected, SSL EOF). `hrrr_wps.py` has no retry, so a wrapper fetched one hour at a time with up to 4 attempts. erf-borah would benefit from a retry in `get()`.
+  2. My first wrapper used `date -d "2015-12-18 18:00 +3 hour"`, which GNU date reads as a +3 timezone offset, so it fetched 15-17Z. Those were deleted and refetched with epoch arithmetic.
+  3. ungrib on uncropped HRRR writes 4.2 GB per hour. The disk filled after four hours (about 16 GB of intermediates), which took the session's temp space with it. Freed by deleting the intermediates and the geography tarball, then cropping with wgrib2.
+  4. real.exe: "Both km_opt and diff_opt need to be set". erf-borah's `namelist.input` sets neither, and real.exe had not run on Borah yet (erf-borah README). The staged copy got `diff_opt = 2, 2, 2`, `km_opt = 4, 4, 2`; this is a modeling choice for the PI and an erf-borah fix, so it is not committed here.
+  5. real.exe: "pal, linear is about as low as we go", with `lagrange_order` 1 or 2. Cause: no sea-level pressure in met_em. `Vtable.raphrrr` reads MSLMA (0/3/198), while `hrrr_wps.py` fetches PRMSL (0/3/1). `bench/inner/wps_real.sh` now links a Vtable copy with PMSL mapped to PRMSL. The fix was validated end to end through the committed script.
+  6. `wps_real.sh` sized MPI with `nproc`, which prints 1 inside the images (`OMP_NUM_THREADS=1`). It now uses `nproc --all`, so real.exe ran on 4 ranks.
+
+## Task 10: SCHNAPS GPU image, not attempted (2026-10-22)
+
+- nvcr.io is still denied (proxy 403), so `containers/pin-digests.sh` cannot pin `nvcr.io/nvidia/nvhpc:24.5-devel-cuda12.4-ubuntu22.04`, and the NVHPC base cannot be pulled. The SCHNAPS GPU build, its cc80/86/89 `cuobjdump` link check and its digest pin remain to do.
+- developer.download.nvidia.com is reachable and serves the HPC SDK 24.5 / CUDA 12.4 tarball (6.8 GB). A local base built from it could stand in for the link check, but that changes how the image is made. It was not done; it is for the PI to decide.
