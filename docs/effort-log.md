@@ -59,3 +59,41 @@ the Ubuntu archive over HTTPS, PyPI, and the HRRR bucket `noaa-hrrr-bdp-pds.s3.a
   4. WRF 4.7.1 failed to link `-lhdf5_fortran` because `HDF5=/opt/deps` was set. That variable makes WRF link HDF5's Fortran libraries, and the stack builds HDF5 C-only. WRF's netCDF-4 support does not need it, so it was dropped.
   5. WPS 4.6 `configure` adds `-lnetcdff` only when it finds a static `libnetcdff.a`, so geogrid and metgrid failed with undefined `nf_*`. The Dockerfile now adds it to `configure.wps`.
   6. Disk: the sandbox allowance is 27 GB, and the `nvidia/cuda` devel base alone takes 11 GB once unpacked. The CPU images and the build cache were deleted before the GPU build.
+
+### ERF GPU (part of task 2)
+
+- sm_80 / Kokkos AMPERE80, CUDA 12.4.1: compiled in 56 min on 4 cores. `cuobjdump --list-elf` shows `erf_exec.1.sm_80.cubin` and `erf_exec.2.sm_80.cubin`, and `ldd` resolves every library except `libcuda.so.1`, which the driver supplies. The slim runtime stage on `nvidia/cuda:12.4.1-runtime` ran its own `ldd` check. Then exporting the image ran out of sandbox disk ("no space left on device"), so there is no local image to `docker run`. GPU runtime is PENDING.
+- Broke:
+  1. `mpi.h: No such file or directory`. nvcc compiles AMReX's `.cu` files without the MPI wrapper. Fixed by putting `mpicxx --showme:incdirs` on `CPATH`.
+  2. The link check counted `libcuda.so.1` as missing. It belongs to the driver, so it is now excluded.
+  3. The runtime manifest read the CUDA version from `/usr/local/cuda-*`, which matches two directories, so the minimum-driver line was wrong. It now reads `$CUDA_VERSION`.
+
+## Task 3: Apptainer
+
+- Elapsed: about 10 min.
+- Built: a `.def` file next to every Dockerfile, bootstrapping `docker-daemon://` from the local image, and `apptainer build ... docker-daemon://...` documented in `containers/README.md`. Apptainer 1.4.5 was installed in the sandbox from its GitHub release `.deb` to test them.
+- Validated: `apptainer build --notest erf-cpu.sif containers/erf/erf-cpu.def` gave a 984 MB SIF. `bench/erf_drycreek.sh CASE=smoke` ran the Radiation regression test in it with `RUNTIME=apptainer`.
+- Broke, sandbox only: the `%test` section and plain `apptainer exec` fail as root here with "Requesting capability set ... while permitted capability set is ...". As a normal user, squashfuse cannot open `/dev/fuse`. `--no-privs` works as root, so the harness has `APPTAINER_FLAGS` for it. A Jetstream2 instance should not need it.
+
+## Task 4: Benchmark harness and cost-model hook (`bench/`, `cost/cost_model.py`)
+
+- Elapsed: about 35 min.
+- Built:
+  - `schnaps_drycreek.sh` (`VARIANT=50m` matched to ERF, or `250m` for Borah's CPU case) and `erf_drycreek.sh` (1 km / 250 m / 50 m). Both cover the 2015-12-18 18Z to 2015-12-19 06Z window.
+  - `stage_drycreek.sh`, which stages schnaps-borah domains and namelists, HRRR for SCHNAPS, HRRR GRIB2 for WPS, and WPS + real.exe in the WPS image.
+  - `common.sh`, which handles the CSV, hardware and instance detection, the image digest, and Docker or Apptainer launch.
+  - `python3 cost/cost_model.py --measured [DIR]`, which replaces the assumed SCHNAPS L40S rate and ERF's "WRF cores per A100" with measured Dry Creek rates, normalized per column-step and per GPU type.
+- Validated:
+  - Without `--measured`, the cost model's output is byte-identical to `cost/output.txt`.
+  - With a synthetic CSV in a temporary directory (not committed), the hook replaced both values (160 → 268 WRF cores per A100, for example) and the scenario tables changed.
+  - The ERF smoke rows were written under both runtimes.
+  - SCHNAPS forcing staging ran end to end.
+- Not run: any Dry Creek benchmark. SCHNAPS cannot be built here, and ERF needs WPS static data. No rate in `bench/results/` is a benchmark.
+- Broke: the AWS metadata probe got an error page from the sandbox proxy, and the instance column recorded that text. It now uses `curl -f` and checks the instance-type format.
+
+## Tasks 5-6: Jetstream2 and AWS guides (`docs/jetstream2.md`, `docs/aws.md`)
+
+- Elapsed: about 20 min.
+- docs.jetstream-cloud.org did not resolve from this session. The Jetstream2 facts were read from the docs' source repository (gitlab.com/jetstream-cloud/jetstream2/docs, commit of 2026-10-13): flavors, vGPU versus passthrough, featured images, Docker and the NVIDIA toolkit, `module load apptainer`, Exosphere steps, `exouser` and `ubuntu`, and the CLI commands.
+- The AWS guide uses the Deep Learning Base OSS NVIDIA driver AMI (Ubuntu 22.04) through its SSM parameter, a one-time spot request, and the prices already cited in `cost/cost_model.py`.
+- No cloud resources were created, and no images were pushed.

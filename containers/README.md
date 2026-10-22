@@ -108,10 +108,13 @@ the source builds in the sibling repositories.
 
 ## Validation status
 
-See `docs/effort-log.md` for dates, times and what broke. In short:
+`docs/effort-log.md` has the dates, times and what broke. As of 2026-10-22:
 
 | Image | Built here | Ran here | GPU runtime |
 | --- | --- | --- | --- |
-| SCHNAPS CPU | dependency stage only. SCHNAPS source is blocked (codeberg.org denied by this machine's network policy) | no | n/a |
-| SCHNAPS GPU | no. `nvcr.io` and NVIDIA's download site are denied, so there is no NVHPC | no | PENDING |
-| ERF CPU, ERF GPU, WPS | see the effort log | ERF CPU: regression cases | PENDING |
+| SCHNAPS CPU | Dependency stage only. SCHNAPS source is blocked: this machine's network policy denies codeberg.org | No | n/a |
+| SCHNAPS GPU | No. nvcr.io and NVIDIA's download site are denied, so there is no NVHPC | No | PENDING |
+| ERF CPU | Yes (16 min) | Radiation (RRTMGP) and NoahMP_Ideal regression cases pass, under Docker and Apptainer | n/a |
+| ERF GPU, sm_80 | Yes (56 min). `cuobjdump` shows sm_80 cubins, and every library resolves except the driver's `libcuda.so.1`. The image export then ran out of sandbox disk | No GPU | PENDING |
+| ERF GPU, sm_89 | See the effort log | No GPU | PENDING |
+| WPS/real.exe | Yes (18 min). geogrid, ungrib, metgrid and real.exe all link | ungrib decodes a real HRRR hour. geogrid needs the WPS static data, which is blocked here | n/a |
