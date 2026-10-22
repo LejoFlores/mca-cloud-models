@@ -63,6 +63,7 @@ the Ubuntu archive over HTTPS, PyPI, and the HRRR bucket `noaa-hrrr-bdp-pds.s3.a
 ### ERF GPU (part of task 2)
 
 - sm_80 / Kokkos AMPERE80, CUDA 12.4.1: compiled in 56 min on 4 cores. `cuobjdump --list-elf` shows `erf_exec.1.sm_80.cubin` and `erf_exec.2.sm_80.cubin`, and `ldd` resolves every library except `libcuda.so.1`, which the driver supplies. The slim runtime stage on `nvidia/cuda:12.4.1-runtime` ran its own `ldd` check. Then exporting the image ran out of sandbox disk ("no space left on device"), so there is no local image to `docker run`. GPU runtime is PENDING.
+- sm_89 / Kokkos ADA89 (L40S), same CUDA: built with `--output type=cacheonly` (no image export, to stay within disk) in 65 min. `cuobjdump` shows `erf_exec.1.sm_89.cubin` and `erf_exec.2.sm_89.cubin`, and the runtime stage's `ldd` check and manifest passed. The manifest lists `CUDA 12.4 CUDA_ARCH=8.9 Kokkos_ARCH_ADA89` and `min_driver 550.54.14`. GPU runtime is PENDING.
 - Broke:
   1. `mpi.h: No such file or directory`. nvcc compiles AMReX's `.cu` files without the MPI wrapper. Fixed by putting `mpicxx --showme:incdirs` on `CPATH`.
   2. The link check counted `libcuda.so.1` as missing. It belongs to the driver, so it is now excluded.

@@ -116,5 +116,5 @@ the source builds in the sibling repositories.
 | SCHNAPS GPU | No. nvcr.io and NVIDIA's download site are denied, so there is no NVHPC | No | PENDING |
 | ERF CPU | Yes (16 min) | Radiation (RRTMGP) and NoahMP_Ideal regression cases pass, under Docker and Apptainer | n/a |
 | ERF GPU, sm_80 | Yes (56 min). `cuobjdump` shows sm_80 cubins, and every library resolves except the driver's `libcuda.so.1`. The image export then ran out of sandbox disk | No GPU | PENDING |
-| ERF GPU, sm_89 | See the effort log | No GPU | PENDING |
+| ERF GPU, sm_89 (`CUDA_ARCH=8.9 KOKKOS_ARCH=ADA89`) | Yes (65 min, cache-only build, no image export). sm_89 cubins, all libraries resolve, and the manifest records min driver 550.54.14 | No GPU | PENDING |
 | WPS/real.exe | Yes (18 min). geogrid, ungrib, metgrid and real.exe all link | ungrib decodes a real HRRR hour. geogrid needs the WPS static data, which is blocked here | n/a |
