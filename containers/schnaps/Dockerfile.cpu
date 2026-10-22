@@ -1,0 +1,86 @@
+# syntax=docker/dockerfile:1.7
+# SCHNAPS v1.1.1, CPU: gfortran 12 + Open MPI, following schnaps-borah build/compile.sh.
+# Build context is containers/ (so common/ is visible):
+#   docker build -f containers/schnaps/Dockerfile.cpu -t schnaps:1.1.1-cpu containers/
+# Without codeberg.org / git.wsl.ch, hand in sources fetched elsewhere (see containers/README.md):
+#   --build-context schnaps-sources=/path/to/src       (Borah's $SCHNAPS_ROOT/src works as is)
+#   --build-context snowpack-tarball=/path/to/schnaps-borah/build   (SNOWPACK fallback only)
+ARG BASE_IMAGE=ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956
+
+# ---------------------------------------------------------------------------------------------
+FROM ${BASE_IMAGE} AS deps
+ARG BASE_IMAGE
+ENV DEBIAN_FRONTEND=noninteractive BASE_IMAGE=${BASE_IMAGE}
+# Ubuntu 22.04 packages pinned to the versions this was validated with (2026-10-22). The full
+# package list lands in /opt/manifest-packages.txt.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      gcc-12=12.3.0-1ubuntu1~22.04.3 g++-12=12.3.0-1ubuntu1~22.04.3 gfortran-12=12.3.0-1ubuntu1~22.04.3 \
+      libopenmpi-dev=4.1.2-2ubuntu1 openmpi-bin=4.1.2-2ubuntu1 libfftw3-dev=3.3.8-2ubuntu8 \
+      zlib1g-dev git curl ca-certificates python3-pip make m4 autoconf automake libtool \
+      pkg-config file perl \
+ && rm -rf /var/lib/apt/lists/* \
+ && for t in gcc g++ gfortran; do update-alternatives --install /usr/bin/$t $t /usr/bin/$t-12 100; done \
+ && update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-12 100 \
+ && update-alternatives --install /usr/bin/f95 f95 /usr/bin/gfortran-12 100 \
+ && pip3 install --no-cache-dir cmake==3.31.6
+# Open MPI's wrappers must call gfortran 12 (Ubuntu's Open MPI was built with gfortran 11; the
+# .mod format is the same, checked by compiling an mpi_f08 program below).
+ENV OMPI_CC=gcc-12 OMPI_CXX=g++-12 OMPI_FC=gfortran-12 \
+    OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 OMP_NUM_THREADS=1
+RUN printf 'program t\n use mpi_f08\n call MPI_Init()\n call MPI_Finalize()\nend program\n' > /tmp/t.f90 \
+ && mpif90 /tmp/t.f90 -o /tmp/t && mpirun -np 2 /tmp/t && rm /tmp/t /tmp/t.f90
+COPY common/build-netcdf-stack.sh common/write-manifest.sh /usr/local/bin/
+# PnetCDF off: its git source needs libtool >= 2.5.4 (22.04 has 2.4.6), and the working Borah
+# GPU build already runs SCHNAPS without it (netCDF-4 parallel I/O through HDF5 instead).
+RUN PREFIX=/opt/deps CC=mpicc FC=mpif90 WITH_PNETCDF=0 build-netcdf-stack.sh
+ENV PATH=/opt/deps/bin:$PATH LD_LIBRARY_PATH=/opt/deps/lib \
+    PKG_CONFIG_PATH=/opt/deps/lib/pkgconfig CMAKE_PREFIX_PATH=/opt/deps
+
+# ---------------------------------------------------------------------------------------------
+# SNOWPACK fallback tarball (empty unless --build-context snowpack-tarball=... is given)
+FROM scratch AS snowpack-tarball
+
+FROM deps AS schnaps-fetch
+ARG SCHNAPS_REF=v1.1.1
+COPY schnaps/fetch_sources.sh /usr/local/bin/
+RUN --mount=type=bind,from=snowpack-tarball,target=/sp \
+    fetch_sources.sh ${SCHNAPS_REF} /src /sp/snowpack_fallback.tar.gz
+
+# Overridable: --build-context schnaps-sources=DIR, where DIR holds SCHNAPS/ and fetch/
+FROM scratch AS schnaps-sources
+COPY --from=schnaps-fetch /src/SCHNAPS /SCHNAPS
+COPY --from=schnaps-fetch /src/fetch /fetch
+
+# ---------------------------------------------------------------------------------------------
+FROM deps AS schnaps
+ARG SCHNAPS_REF=v1.1.1
+# The SNOWPACK commit SCHNAPS v1.1.1 pins (cmake/snowpack.cmake); the build stops if it differs.
+ARG SNOWPACK_COMMIT=2a099259447c1973ef1fbd7c78000136a697b916
+ARG J=4
+ENV SCHNAPS_SRC=/opt/schnaps/src/SCHNAPS SCHNAPS_FETCH=/opt/schnaps/src/fetch
+COPY --from=schnaps-sources /SCHNAPS ${SCHNAPS_SRC}
+COPY --from=schnaps-sources /fetch ${SCHNAPS_FETCH}
+WORKDIR ${SCHNAPS_SRC}
+RUN set -e; F=$SCHNAPS_FETCH \
+ && git config --global --add safe.directory '*' \
+ && rm -rf build build_gpu build_nvcpu bin \
+ && git checkout -q -- . \
+ && got=$(git describe --tags --exact-match 2>/dev/null || git rev-parse HEAD) \
+ && [ "$got" = "$SCHNAPS_REF" ] || { echo "SCHNAPS source is at $got, expected $SCHNAPS_REF"; exit 1; } \
+ && snow=$(git -C $F/SNOWPACK rev-parse HEAD) \
+ && [ "$snow" = "$SNOWPACK_COMMIT" ] || { echo "SNOWPACK at $snow, expected $SNOWPACK_COMMIT"; exit 1; } \
+ && cmake -S . -B build -G "Unix Makefiles" -DMODE=release -DOPENACC=OFF -DNATIVE=OFF \
+      -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+      -DFETCHCONTENT_SOURCE_DIR_RTE-RRTMGP=$F/rte-rrtmgp -DFETCHCONTENT_SOURCE_DIR_RRTMGP-DATA=$F/rrtmgp-data \
+      -DFETCHCONTENT_SOURCE_DIR_NOAHMP=$F/noahmp -DFETCHCONTENT_SOURCE_DIR_ICAR_SUPPORTING_FILES=$F/icar_supporting_files \
+      -DFETCHCONTENT_SOURCE_DIR_TEST-DRIVE=$F/test-drive -DSNOWPACK_DIR=$F/SNOWPACK \
+ && cmake --build build -j$J && cmake --install build \
+ && cmake --build build -j$J --target SCHNAPS-tester \
+ && ls -l bin/SCHNAPS
+COPY schnaps/run-tests.sh /opt/schnaps/
+RUN { echo "schnaps_ref $(cat $SCHNAPS_FETCH/REF)"; sed 's/^/pin /' $SCHNAPS_FETCH/PINS; \
+      echo "schnaps_build cpu gfortran MODE=release NATIVE=OFF OPENACC=OFF"; \
+      echo "gpu none"; } | write-manifest.sh schnaps-cpu
+ENV PATH=${SCHNAPS_SRC}/bin:$PATH
+WORKDIR /work
+CMD ["cat", "/opt/manifest.txt"]

@@ -1,0 +1,2 @@
+*.sif
+bench/results/*.local.csv

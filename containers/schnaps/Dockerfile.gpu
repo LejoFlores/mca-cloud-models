@@ -1,0 +1,108 @@
+# syntax=docker/dockerfile:1.7
+# SCHNAPS v1.1.1, GPU: NVHPC nvfortran + OpenACC, following schnaps-borah build/compile_gpu.sh.
+# No GPU is needed to build. Build context is containers/:
+#   docker build -f containers/schnaps/Dockerfile.gpu -t schnaps:1.1.1-gpu-cuda12.4 containers/
+#
+# CUDA is chosen at build time through the NVHPC image (each NVHPC release bundles fixed CUDA
+# versions). Minimum NVIDIA driver = the one the chosen CUDA needs (CUDA 12.x minor-version
+# compatibility lowers it to >= 525.60.13 for code that needs no PTX JIT; the SASS below is built
+# for every listed cc, so no JIT is needed on those GPUs):
+#   default  NVHPC 24.5 / CUDA 12.4  driver >= 550.54.14  Borah L40S (driver 550), Jetstream2, AWS
+#   newer    NVHPC 26.3 / CUDA 13.1  driver >= 580     what upstream SCHNAPS CI and its prebuilt image use
+#     --build-arg NVHPC_IMAGE=nvcr.io/nvidia/nvhpc:26.3-devel-cuda13.1-ubuntu24.04@sha256:<digest> \
+#     --build-arg NVHPC_VER=26.3 --build-arg CUDA_VER=13.1
+# Pin NVHPC_IMAGE by digest before a release build: containers/pin-digests.sh prints it.
+#
+# GPU_CC is a comma list for nvfortran -gpu=: cc80 = A100 (Jetstream2 g3, AWS p4d), cc86 = A10G
+# (AWS g5), cc89 = L40S (AWS g6e, Borah). One binary carries code for all of them.
+ARG NVHPC_IMAGE=nvcr.io/nvidia/nvhpc:24.5-devel-cuda12.4-ubuntu22.04
+
+# ---------------------------------------------------------------------------------------------
+FROM ${NVHPC_IMAGE} AS deps
+ARG NVHPC_IMAGE
+ARG NVHPC_VER=24.5
+ARG CUDA_VER=12.4
+ENV DEBIAN_FRONTEND=noninteractive BASE_IMAGE=${NVHPC_IMAGE} NVHPC_VER=${NVHPC_VER} CUDA_VER=${CUDA_VER}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git curl ca-certificates python3-pip make m4 autoconf automake libtool pkg-config file zlib1g-dev \
+ && rm -rf /var/lib/apt/lists/* \
+ && (pip3 install --no-cache-dir cmake==3.31.6 || pip3 install --no-cache-dir --break-system-packages cmake==3.31.6)
+# Same layout as schnaps-borah build/env_nvhpc.sh, with the SDK at the NVHPC image's location.
+ENV NVHPC_ROOT=/opt/nvidia/hpc_sdk/Linux_x86_64/${NVHPC_VER}
+ENV MPI_ROOT=${NVHPC_ROOT}/comm_libs/${CUDA_VER}/hpcx/latest/ompi \
+    CUDA_HOME=${NVHPC_ROOT}/cuda/${CUDA_VER} \
+    NVHPC_CUDA_HOME=${NVHPC_ROOT}/cuda/${CUDA_VER} \
+    MATHLIB=${NVHPC_ROOT}/math_libs/${CUDA_VER}/targets/x86_64-linux
+# NVHPC_CUDA_HOME pins nvfortran to the chosen CUDA: with no driver present (as here) it would
+# otherwise pick the newest bundled CUDA for any -gpu=ccXX target.
+ENV PATH=/opt/deps/bin:${MPI_ROOT}/bin:${NVHPC_ROOT}/compilers/bin:${CUDA_HOME}/bin:$PATH \
+    LD_LIBRARY_PATH=/opt/deps/lib:${MPI_ROOT}/lib:${NVHPC_ROOT}/comm_libs/${CUDA_VER}/nccl/lib:${MATHLIB}/lib:${CUDA_HOME}/lib64:${NVHPC_ROOT}/compilers/lib \
+    CPATH=${MATHLIB}/include LIBRARY_PATH=${MATHLIB}/lib \
+    PKG_CONFIG_PATH=/opt/deps/lib/pkgconfig CMAKE_PREFIX_PATH=/opt/deps \
+    CC=nvc CXX=nvc++ FC=nvfortran OMPI_CC=nvc OMPI_CXX=nvc++ OMPI_FC=nvfortran \
+    OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 OMP_NUM_THREADS=1
+RUN set -e; ls -d ${MPI_ROOT} ${CUDA_HOME} >/dev/null \
+ && ${NVHPC_ROOT}/compilers/bin/makelocalrc ${NVHPC_ROOT}/compilers/bin -cuda ${CUDA_VER} -x >/dev/null \
+ && nvfortran --version | head -2 && mpif90 --version | head -1
+COPY common/build-netcdf-stack.sh common/write-manifest.sh /usr/local/bin/
+# netcdf-fortran's .mod files must come from nvfortran, the compiler SCHNAPS is built with.
+RUN PREFIX=/opt/deps CC=mpicc FC=mpif90 WITH_PNETCDF=0 build-netcdf-stack.sh
+
+# ---------------------------------------------------------------------------------------------
+FROM scratch AS snowpack-tarball
+
+FROM deps AS schnaps-fetch
+ARG SCHNAPS_REF=v1.1.1
+COPY schnaps/fetch_sources.sh /usr/local/bin/
+RUN --mount=type=bind,from=snowpack-tarball,target=/sp \
+    fetch_sources.sh ${SCHNAPS_REF} /src /sp/snowpack_fallback.tar.gz
+
+FROM scratch AS schnaps-sources
+COPY --from=schnaps-fetch /src/SCHNAPS /SCHNAPS
+COPY --from=schnaps-fetch /src/fetch /fetch
+
+# ---------------------------------------------------------------------------------------------
+FROM deps AS schnaps
+ARG SCHNAPS_REF=v1.1.1
+ARG SNOWPACK_COMMIT=2a099259447c1973ef1fbd7c78000136a697b916
+ARG GPU_CC=cc80,cc86,cc89
+ARG J=4
+ENV SCHNAPS_SRC=/opt/schnaps/src/SCHNAPS SCHNAPS_FETCH=/opt/schnaps/src/fetch GPU_CC=${GPU_CC}
+COPY --from=schnaps-sources /SCHNAPS ${SCHNAPS_SRC}
+COPY --from=schnaps-sources /fetch ${SCHNAPS_FETCH}
+WORKDIR ${SCHNAPS_SRC}
+# nvfortran <= 24.x lacks two-argument ATAN(y, x) (Fortran 2008): same ATAN2 fix as schnaps-borah.
+RUN set -e; F=$SCHNAPS_FETCH \
+ && git config --global --add safe.directory '*' \
+ && rm -rf build build_gpu build_nvcpu bin && git checkout -q -- . \
+ && got=$(git describe --tags --exact-match 2>/dev/null || git rev-parse HEAD) \
+ && [ "$got" = "$SCHNAPS_REF" ] || { echo "SCHNAPS source is at $got, expected $SCHNAPS_REF"; exit 1; } \
+ && snow=$(git -C $F/SNOWPACK rev-parse HEAD) \
+ && [ "$snow" = "$SNOWPACK_COMMIT" ] || { echo "SNOWPACK at $snow, expected $SNOWPACK_COMMIT"; exit 1; } \
+ && case "$NVHPC_VER" in 2[0-4].*) \
+      sed -i 's/= ATAN(-u_m(i, k, j), -v_m(i, k, j))/= ATAN2(-u_m(i, k, j), -v_m(i, k, j))/' src/physics/wind.F90 ;; esac \
+ && ARCHS=$(echo "$GPU_CC" | sed 's/cc//g; s/,/;/g') \
+ && cmake -S . -B build_gpu -G "Unix Makefiles" -DMODE=release -DOPENACC=ON -DNATIVE=OFF -DGPU_CC=$GPU_CC \
+      -DCMAKE_Fortran_COMPILER=nvfortran -DCMAKE_C_COMPILER=nvc -DCMAKE_CXX_COMPILER=nvc++ \
+      -DMPI_Fortran_COMPILER=$MPI_ROOT/bin/mpif90 -DMPI_C_COMPILER=$MPI_ROOT/bin/mpicc \
+      -DCUDAToolkit_ROOT=$CUDA_HOME -DCMAKE_CUDA_COMPILER=$CUDA_HOME/bin/nvcc "-DCMAKE_CUDA_ARCHITECTURES=$ARCHS" \
+      -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+      -DFETCHCONTENT_SOURCE_DIR_RTE-RRTMGP=$F/rte-rrtmgp -DFETCHCONTENT_SOURCE_DIR_RRTMGP-DATA=$F/rrtmgp-data \
+      -DFETCHCONTENT_SOURCE_DIR_NOAHMP=$F/noahmp -DFETCHCONTENT_SOURCE_DIR_ICAR_SUPPORTING_FILES=$F/icar_supporting_files \
+      -DFETCHCONTENT_SOURCE_DIR_TEST-DRIVE=$F/test-drive -DSNOWPACK_DIR=$F/SNOWPACK \
+ && cmake --build build_gpu -j$J --target SCHNAPS && cmake --install build_gpu \
+ && ls -l bin/SCHNAPS_gpu
+# Link check: every requested cc must be in the binary (cuobjdump lists the embedded SASS).
+RUN set -e; cuobjdump --list-elf bin/SCHNAPS_gpu | tee /opt/schnaps-gpu-elf.txt | head; \
+    for cc in $(echo $GPU_CC | tr , ' '); do grep -q "sm_${cc#cc}" /opt/schnaps-gpu-elf.txt \
+      || { echo "no sm_${cc#cc} code in SCHNAPS_gpu"; exit 1; }; done
+COPY schnaps/run-tests.sh /opt/schnaps/
+RUN { echo "schnaps_ref $(cat $SCHNAPS_FETCH/REF)"; sed 's/^/pin /' $SCHNAPS_FETCH/PINS; \
+      echo "schnaps_build gpu nvfortran OpenACC MODE=release GPU_CC=$GPU_CC"; \
+      echo "nvhpc $NVHPC_VER cuda $CUDA_VER"; \
+      case $CUDA_VER in 12.*) echo "min_driver 550.54.14 (CUDA $CUDA_VER; >= 525.60.13 with CUDA minor-version compatibility)";; \
+                        13.*) echo "min_driver 580 (CUDA $CUDA_VER)";; *) echo "min_driver see CUDA $CUDA_VER release notes";; esac; \
+      echo "gpu_runtime_validation PENDING (built without a GPU)"; } | write-manifest.sh schnaps-gpu
+ENV PATH=${SCHNAPS_SRC}/bin:$PATH
+WORKDIR /work
+CMD ["cat", "/opt/manifest.txt"]
