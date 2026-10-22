@@ -4,6 +4,9 @@ Transparent cost model: Snake River Basin CESM-LE downscaling (ERF member 1, SCH
 2-40, WRF-Hydro for all 40) on AWS, Google Cloud and Jetstream2 (NSF ACCESS).
 
 Run:  python3 cost_model.py            (standard library only, Python >= 3.8)
+      python3 cost_model.py --measured [DIR]   replace the assumed SCHNAPS GPU rate and ERF/WRF
+                                         ratio with Dry Creek rates measured by bench/ (DIR defaults
+                                         to ../bench/results; see apply_measured below)
 
 Everything that drives a number is a named constant below, with a comment saying where it came
 from. Tags used in comments:
@@ -13,7 +16,11 @@ from. Tags used in comments:
   [ASSUME] engineering judgement, NOT verified -- change these first when better data arrive
 Low / central / high always mean low / central / high COST.
 """
+import csv
+import glob
 import math
+import os
+import sys
 
 # =============================================================================================
 # 1. GEOMETRY
@@ -264,6 +271,85 @@ HYD_RATE = {k: NWM_COREH_PER_DAY / v / NWM_RT_CELLS for k, v in NWM_SIMH_PER_DAY
 # core-h per 250 m routing cell per simulated hour (includes the 1 km LSM and channel routing)
 
 # =============================================================================================
+# MEASURED RATES HOOK  (python3 cost_model.py --measured [DIR])
+# =============================================================================================
+# bench/schnaps_drycreek.sh and bench/erf_drycreek.sh append rows to DIR/*.csv. Only GPU rows with
+# status "ok" for the Dry Creek 12 h cases are used; the median rate per model wins. Each rate is
+# converted to the same per-unit form the assumed values use, so every scenario scales as before:
+#   SCHNAPS: L40S-h per unit-simhour = (1 / measured sim-h per wall-h) / units(case domains),
+#            divided by SCHNAPS_REL of the measured GPU -> replaces SCH_GPU_RATE (all levels).
+#   ERF:     A100-h per column-step = (1 / rate) * ERF_REL[gpu] / column-steps per sim-hour of the
+#            case (dt as in erf-borah inputs_drycreek), turned into the WRF_CORES_PER_A100 that
+#            reproduces it at each level's WRF_RATE_MULT -> replaces the Lattanzi et al. ratio.
+BENCH_DOMAINS = {   # sim cases -> [(columns, dx_m)] (schnaps-borah setup/README.md, erf-borah README)
+    "drycreek_dec2015_12h_250m": [(DRY_D01_COLS, 1000.0), (DRY_D02_COLS, 250.0)],
+    "drycreek_dec2015_12h_50m": [(DRY_D01_COLS, 1000.0), (DRY_D02_COLS, 250.0), (227 * 268, 50.0)],
+}
+ERF_BENCH_LEVELS = {"drycreek_dec2015_12h_1km-250m-50m": [(123 * 123, 5.0), (128 * 136, 1.25),
+                                                          (240 * 280, 0.25)]}   # (columns, dt_s)
+
+
+def gpu_key(hardware, instance=""):
+    """Map the CSV hardware string (nvidia-smi name) to the GPU keys used in the price tables.
+    Jetstream2 g3.large is half an A100 through vGPU (its name reads like "GRID A100X-20C")."""
+    h = hardware.upper()
+    if "A100" in h:
+        half = "MIG" in h or "GRID" in h or "-20C" in h or instance in ("g3.large", "g3.medium")
+        return "A100-half" if half else "A100"
+    for k in ("L40S", "A10G", "H100", "L4", "RTX PRO 6000"):
+        if k in h:
+            return "RTXPRO6000" if k == "RTX PRO 6000" else k
+    return None
+
+
+def read_bench(path):
+    rows = []
+    for f in sorted(glob.glob(os.path.join(path, "*.csv"))):
+        with open(f, newline="") as fh:
+            rows += [r for r in csv.DictReader(fh)]
+    return [r for r in rows if r.get("status") == "ok" and int(r.get("gpus") or 0) > 0
+            and r.get("sim_hours_per_wall_hour")]
+
+
+def median(xs):
+    xs = sorted(xs)
+    n = len(xs)
+    return xs[n // 2] if n % 2 else 0.5 * (xs[n // 2 - 1] + xs[n // 2])
+
+
+def apply_measured(path):
+    """Swap the assumed GPU rates for measured ones. Returns report rows (empty if none found)."""
+    global SCH_GPU_RATE, WRF_CORES_PER_A100
+    rows, report = read_bench(path), []
+    sch = []
+    for r in rows:
+        g = gpu_key(r["hardware"], r.get("instance", ""))
+        if r["model"] == "schnaps" and r["case"] in BENCH_DOMAINS and g in SCHNAPS_REL:
+            per_gpu = float(r["sim_hours_per_wall_hour"]) / int(r["gpus"])
+            sch.append((1.0 / per_gpu) / units(BENCH_DOMAINS[r["case"]]) / SCHNAPS_REL[g])
+    if sch:
+        old = SCH_GPU_RATE["central"]
+        SCH_GPU_RATE = {k: median(sch) for k in LEVELS}
+        report.append(["SCHNAPS L40S-h per unit-simhour", f"{old:.3e} (central)",
+                       f"{SCH_GPU_RATE['central']:.3e}", f"{len(sch)} run(s)"])
+    erf = []
+    for r in rows:
+        g = gpu_key(r["hardware"], r.get("instance", ""))
+        if r["model"] == "erf" and r["case"] in ERF_BENCH_LEVELS and g in ERF_REL:
+            per_gpu = float(r["sim_hours_per_wall_hour"]) / int(r["gpus"])
+            colsteps = sum(n * 3600.0 / dt for n, dt in ERF_BENCH_LEVELS[r["case"]])
+            erf.append((1.0 / per_gpu) * ERF_REL[g] / colsteps)
+    if erf:
+        a100_h_per_colstep = median(erf)
+        old = WRF_CORES_PER_A100["central"]
+        wrf_core_h_per_colstep = WRF_CORE_S_PER_COLSTEP / 3600
+        WRF_CORES_PER_A100 = {k: wrf_core_h_per_colstep * WRF_RATE_MULT[k] / a100_h_per_colstep
+                              for k in LEVELS}
+        report.append(["WRF cores replaced by one A100 (ERF)", f"{old:.0f} (central)",
+                       f"{WRF_CORES_PER_A100['central']:.0f}", f"{len(erf)} run(s)"])
+    return report
+
+# =============================================================================================
 # DOMAINS AND SCENARIOS
 # =============================================================================================
 ATM_W, ATM_H = box_km(BASIN_LAT_S, BASIN_LAT_N, BASIN_LON_W, BASIN_LON_E, BUFFER_KM)
@@ -373,10 +459,17 @@ def js2_wall_years(a100_h, gpu_su, tier, lv):
 # =============================================================================================
 # REPORT
 # =============================================================================================
-def main():
+def main(measured=None):
+    report = apply_measured(measured) if measured else []
     print("=" * 96)
     print("SNAKE RIVER CESM-LE DOWNSCALING: COST MODEL (prices retrieved 2026-10-21/22)")
     print("=" * 96)
+    if measured:
+        if report:
+            table(f"MEASURED rates from {measured} replace these assumptions",
+                  ["quantity", "assumed", "measured", "from"], report)
+        else:
+            print(f"\n--measured: no usable GPU Dry Creek rows in {measured}; assumptions kept.")
     table("Geometry", ["item", "value"], [
         ["atmos box incl. 50 km buffer (km)", f"{ATM_W:.0f} x {ATM_H:.0f}"],
         ["  columns at 4 km / 1 km", f"{cols(ATM_W, ATM_H, 4000):,} / {cols(ATM_W, ATM_H, 1000):,}"],
@@ -486,4 +579,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--measured" in sys.argv:
+        i = sys.argv.index("--measured")
+        d = sys.argv[i + 1] if len(sys.argv) > i + 1 else os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "bench", "results")
+        main(measured=d)
+    else:
+        main()
