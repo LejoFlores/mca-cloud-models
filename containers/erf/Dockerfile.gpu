@@ -45,11 +45,12 @@ ARG CUDA_ARCH=8.0
 ARG KOKKOS_ARCH=AMPERE80
 ARG J=4
 RUN CUDA_ARCH=${CUDA_ARCH} KOKKOS_ARCH=${KOKKOS_ARCH} J=${J} build_erf.sh gpu /opt/erf/src/ERF /opt/erf
-# Link check: the binary must carry SASS for CUDA_ARCH and resolve every library.
+# Link check: the binary must carry SASS for CUDA_ARCH and resolve every library except
+# libcuda.so.1, which the NVIDIA driver provides at run time.
 RUN set -e; sm=sm_$(echo ${CUDA_ARCH} | tr -d .); \
     cuobjdump --list-elf /opt/erf/bin/erf_exec | tee /opt/erf-gpu-elf.txt | head; \
     grep -q "$sm" /opt/erf-gpu-elf.txt || { echo "no $sm code in erf_exec"; exit 1; }; \
-    ! ldd /opt/erf/bin/erf_exec | grep "not found"
+    ! ldd /opt/erf/bin/erf_exec | grep -v libcuda.so | grep "not found"
 
 # ---------------------------------------------------------------------------------------------
 FROM ${CUDA_RUNTIME} AS runtime
@@ -68,7 +69,7 @@ COPY erf/run-example.sh /opt/erf/
 ENV PATH=/opt/erf/bin:/opt/deps/bin:$PATH LD_LIBRARY_PATH=/opt/deps/lib \
     ERF_DATA=/opt/erf/data OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 RUN set -e; ! ldd /opt/erf/bin/erf_exec | grep -v libcuda.so | grep "not found"; \
-    cuda=$(ls -d /usr/local/cuda-* | sed 's/.*cuda-//'); \
+    cuda=$(echo $CUDA_VERSION | cut -d. -f1,2); \
     { echo "erf_commit $(git -C /opt/erf/src/ERF rev-parse HEAD)"; \
       git -C /opt/erf/src/ERF submodule status | grep -v '^-' | awk '{print "erf_submodule "$2" "$1}'; \
       echo "erf_build gpu CUDA $cuda CUDA_ARCH=${CUDA_ARCH} Kokkos_ARCH_${KOKKOS_ARCH} MPI NetCDF NoahMP RRTMGP"; \

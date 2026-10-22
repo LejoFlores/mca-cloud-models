@@ -10,7 +10,8 @@ M=/opt/manifest.txt
   echo "base_image ${BASE_IMAGE:-unknown}"
   echo "os $(. /etc/os-release && echo "$PRETTY_NAME") glibc $(ldd --version | head -1 | awk '{print $NF}')"
   for c in gfortran gcc nvfortran nvcc mpif90 mpicc cmake; do
-    command -v $c >/dev/null 2>&1 && echo "$c $($c --version 2>&1 | grep -m1 -E '[0-9]+\.[0-9]+' | tr -s ' ')"
+    v=$(command -v $c >/dev/null 2>&1 && $c --version 2>/dev/null | grep -m1 -E '[0-9]+\.[0-9]+' | tr -s ' ')
+    [ -n "$v" ] && echo "$c $v"
   done
   command -v ompi_info >/dev/null 2>&1 && echo "openmpi $(ompi_info --version 2>/dev/null | head -1)"
   [ -f /opt/deps/STACK_VERSIONS ] && sed 's/^/stack /' /opt/deps/STACK_VERSIONS
