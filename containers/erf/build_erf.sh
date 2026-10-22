@@ -7,6 +7,8 @@ T=$1; SRC=$2; P=$3; J=${J:-$(nproc)}
 [ -f "$(nc-config --includedir)/netcdf_par.h" ] || { echo "netcdf-c is not the parallel build" >&2; exit 1; }
 GPU=()
 if [ "$T" = gpu ]; then
+  # nvcc compiles AMReX's .cu files without the MPI wrapper: give it MPI's headers.
+  export CPATH=$(mpicxx --showme:incdirs | tr ' ' ':')${CPATH:+:$CPATH}
   GPU=(-DERF_ENABLE_CUDA=ON -DAMReX_CUDA_ARCH="$CUDA_ARCH" -DKokkos_ARCH_${KOKKOS_ARCH}=ON
        -DCMAKE_CUDA_HOST_COMPILER=${CUDAHOSTCXX:-g++})
 fi
