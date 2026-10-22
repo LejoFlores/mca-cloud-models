@@ -1,0 +1,81 @@
+# syntax=docker/dockerfile:1.7
+# ERF at commit 5fa15bd, GPU (CUDA): MPI + NetCDF + Noah-MP + RRTMGP, following erf-borah
+# build/compile.sh gpu (nvcc with a GCC 12 host compiler; NVHPC is not needed for ERF).
+# No GPU is needed to build. Build context is containers/:
+#   docker build -f containers/erf/Dockerfile.gpu -t erf:5fa15bd-cuda12.4-sm80 containers/
+#
+# CUDA is chosen at build time through the base images (devel to build, runtime to run):
+#   default CUDA 12.4.1: driver >= 550.54.14 (>= 525.60.13 with CUDA minor-version compatibility).
+#                        Runs on Borah's driver 550, Jetstream2 and AWS.
+#   CUDA 12.8.1:         driver >= 570.124.06 (or >= 525.60.13 with minor-version compatibility)
+#     --build-arg CUDA_DEVEL=nvidia/cuda:12.8.1-devel-ubuntu22.04@sha256:a99a1860ba8e2916e5c3e73b72ec4c4301653a84586e05bfc9a2aa2d58027e97 \
+#     --build-arg CUDA_RUNTIME=nvidia/cuda:12.8.1-runtime-ubuntu22.04@sha256:4a801ef9232d2b05e69df4eb8aa054dbbe2824e5499e1e6e857320bb01ac41a9
+#
+# One GPU architecture per image: ERF's RRTMGP goes through EKAT/Kokkos, and a Kokkos CUDA build
+# targets exactly one architecture. CUDA_ARCH / KOKKOS_ARCH pairs:
+#   8.0 / AMPERE80  A100: Jetstream2 g3.*, AWS p4d (default). sm_80 code also runs on cc 8.6/8.9.
+#   8.6 / AMPERE86  A10G: AWS g5
+#   8.9 / ADA89     L40S: AWS g6e, Borah
+ARG CUDA_DEVEL=nvidia/cuda:12.4.1-devel-ubuntu22.04@sha256:da6791294b0b04d7e65d87b7451d6f2390b4d36225ab0701ee7dfec5769829f5
+ARG CUDA_RUNTIME=nvidia/cuda:12.4.1-runtime-ubuntu22.04@sha256:517da2300c184c9999ec203c2665244bdebd3578d12fcc7065e83667932643d9
+
+# ---------------------------------------------------------------------------------------------
+FROM ${CUDA_DEVEL} AS build
+ARG CUDA_DEVEL
+ENV DEBIAN_FRONTEND=noninteractive BASE_IMAGE=${CUDA_DEVEL}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      gcc-12=12.3.0-1ubuntu1~22.04.3 g++-12=12.3.0-1ubuntu1~22.04.3 gfortran-12=12.3.0-1ubuntu1~22.04.3 \
+      libopenmpi-dev=4.1.2-2ubuntu1 openmpi-bin=4.1.2-2ubuntu1 \
+      zlib1g-dev git curl ca-certificates python3-pip make m4 autoconf automake libtool \
+      pkg-config file perl \
+ && rm -rf /var/lib/apt/lists/* \
+ && for t in gcc g++ gfortran; do update-alternatives --install /usr/bin/$t $t /usr/bin/$t-12 100; done \
+ && update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-12 100 \
+ && pip3 install --no-cache-dir cmake==3.31.6
+ENV OMPI_CC=gcc-12 OMPI_CXX=g++-12 OMPI_FC=gfortran-12 CUDAHOSTCXX=/usr/bin/g++-12 \
+    OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+COPY common/build-netcdf-stack.sh common/write-manifest.sh /usr/local/bin/
+RUN PREFIX=/opt/deps CC=mpicc FC=mpif90 WITH_PNETCDF=0 build-netcdf-stack.sh
+ENV PATH=/opt/deps/bin:$PATH LD_LIBRARY_PATH=/opt/deps/lib \
+    PKG_CONFIG_PATH=/opt/deps/lib/pkgconfig CMAKE_PREFIX_PATH=/opt/deps
+ARG ERF_COMMIT=5fa15bdc5e7feecd00a6a0e0b775ebce0b690e81
+COPY erf/fetch_erf.sh erf/build_erf.sh /usr/local/bin/
+RUN fetch_erf.sh ${ERF_COMMIT} /opt/erf/src/ERF
+ARG CUDA_ARCH=8.0
+ARG KOKKOS_ARCH=AMPERE80
+ARG J=4
+RUN CUDA_ARCH=${CUDA_ARCH} KOKKOS_ARCH=${KOKKOS_ARCH} J=${J} build_erf.sh gpu /opt/erf/src/ERF /opt/erf
+# Link check: the binary must carry SASS for CUDA_ARCH and resolve every library.
+RUN set -e; sm=sm_$(echo ${CUDA_ARCH} | tr -d .); \
+    cuobjdump --list-elf /opt/erf/bin/erf_exec | tee /opt/erf-gpu-elf.txt | head; \
+    grep -q "$sm" /opt/erf-gpu-elf.txt || { echo "no $sm code in erf_exec"; exit 1; }; \
+    ! ldd /opt/erf/bin/erf_exec | grep "not found"
+
+# ---------------------------------------------------------------------------------------------
+FROM ${CUDA_RUNTIME} AS runtime
+ARG CUDA_RUNTIME
+ARG CUDA_ARCH=8.0
+ARG KOKKOS_ARCH=AMPERE80
+ENV DEBIAN_FRONTEND=noninteractive BASE_IMAGE=${CUDA_RUNTIME}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      openmpi-bin=4.1.2-2ubuntu1 libopenmpi3=4.1.2-2ubuntu1 libgfortran5 libgomp1 zlib1g git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=build /opt/deps /opt/deps
+COPY --from=build /opt/erf /opt/erf
+COPY --from=build /usr/local/bin/write-manifest.sh /usr/local/bin/
+COPY --from=build /opt/erf-gpu-elf.txt /opt/
+COPY erf/run-example.sh /opt/erf/
+ENV PATH=/opt/erf/bin:/opt/deps/bin:$PATH LD_LIBRARY_PATH=/opt/deps/lib \
+    ERF_DATA=/opt/erf/data OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+RUN set -e; ! ldd /opt/erf/bin/erf_exec | grep -v libcuda.so | grep "not found"; \
+    cuda=$(ls -d /usr/local/cuda-* | sed 's/.*cuda-//'); \
+    { echo "erf_commit $(git -C /opt/erf/src/ERF rev-parse HEAD)"; \
+      git -C /opt/erf/src/ERF submodule status | awk '{print "erf_submodule "$2" "$1}'; \
+      echo "erf_build gpu CUDA $cuda CUDA_ARCH=${CUDA_ARCH} Kokkos_ARCH_${KOKKOS_ARCH} MPI NetCDF NoahMP RRTMGP"; \
+      echo "build_image ${CUDA_RUNTIME}"; \
+      case $cuda in 12.4) echo "min_driver 550.54.14 (>= 525.60.13 with CUDA minor-version compatibility)";; \
+                    12.8) echo "min_driver 570.124.06 (>= 525.60.13 with CUDA minor-version compatibility)";; \
+                    *) echo "min_driver see CUDA $cuda release notes";; esac; \
+      echo "gpu_runtime_validation PENDING (built without a GPU)"; } | write-manifest.sh erf-gpu
+WORKDIR /work
+CMD ["cat", "/opt/manifest.txt"]

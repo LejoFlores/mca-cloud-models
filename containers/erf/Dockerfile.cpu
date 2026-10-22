@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1.7
+# ERF at commit 5fa15bd (2026-10-08), CPU: MPI + NetCDF + Noah-MP + RRTMGP, following erf-borah
+# build/compile.sh. Build context is containers/:
+#   docker build -f containers/erf/Dockerfile.cpu -t erf:5fa15bd-cpu containers/
+ARG BASE_IMAGE=ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956
+
+# The deps stage is kept identical to containers/schnaps/Dockerfile.cpu so both share its layers.
+# ---------------------------------------------------------------------------------------------
+FROM ${BASE_IMAGE} AS deps
+ARG BASE_IMAGE
+ENV DEBIAN_FRONTEND=noninteractive BASE_IMAGE=${BASE_IMAGE}
+# Ubuntu 22.04 packages pinned to the versions this was validated with (2026-10-22). The full
+# package list lands in /opt/manifest-packages.txt.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      gcc-12=12.3.0-1ubuntu1~22.04.3 g++-12=12.3.0-1ubuntu1~22.04.3 gfortran-12=12.3.0-1ubuntu1~22.04.3 \
+      libopenmpi-dev=4.1.2-2ubuntu1 openmpi-bin=4.1.2-2ubuntu1 libfftw3-dev=3.3.8-2ubuntu8 \
+      zlib1g-dev git curl ca-certificates python3-pip make m4 autoconf automake libtool \
+      pkg-config file perl \
+ && rm -rf /var/lib/apt/lists/* \
+ && for t in gcc g++ gfortran; do update-alternatives --install /usr/bin/$t $t /usr/bin/$t-12 100; done \
+ && update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-12 100 \
+ && update-alternatives --install /usr/bin/f95 f95 /usr/bin/gfortran-12 100 \
+ && pip3 install --no-cache-dir cmake==3.31.6
+# Open MPI's wrappers must call gfortran 12 (Ubuntu's Open MPI was built with gfortran 11; the
+# .mod format is the same, checked by compiling an mpi_f08 program below).
+ENV OMPI_CC=gcc-12 OMPI_CXX=g++-12 OMPI_FC=gfortran-12 \
+    OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 OMP_NUM_THREADS=1
+RUN printf 'program t\n use mpi_f08\n call MPI_Init()\n call MPI_Finalize()\nend program\n' > /tmp/t.f90 \
+ && mpif90 /tmp/t.f90 -o /tmp/t && mpirun -np 2 /tmp/t && rm /tmp/t /tmp/t.f90
+COPY common/build-netcdf-stack.sh common/write-manifest.sh /usr/local/bin/
+# PnetCDF off: its git source needs libtool >= 2.5.4 (22.04 has 2.4.6), and the working Borah
+# GPU build already runs SCHNAPS without it (netCDF-4 parallel I/O through HDF5 instead).
+RUN PREFIX=/opt/deps CC=mpicc FC=mpif90 WITH_PNETCDF=0 build-netcdf-stack.sh
+ENV PATH=/opt/deps/bin:$PATH LD_LIBRARY_PATH=/opt/deps/lib \
+    PKG_CONFIG_PATH=/opt/deps/lib/pkgconfig CMAKE_PREFIX_PATH=/opt/deps
+
+# ---------------------------------------------------------------------------------------------
+FROM deps AS erf
+ARG ERF_COMMIT=5fa15bdc5e7feecd00a6a0e0b775ebce0b690e81
+ARG J=4
+COPY erf/fetch_erf.sh erf/build_erf.sh /usr/local/bin/
+RUN fetch_erf.sh ${ERF_COMMIT} /opt/erf/src/ERF
+RUN build_erf.sh cpu /opt/erf/src/ERF /opt/erf
+COPY erf/run-example.sh /opt/erf/
+RUN { echo "erf_commit $(git -C /opt/erf/src/ERF rev-parse HEAD)"; \
+      git -C /opt/erf/src/ERF submodule status | awk '{print "erf_submodule "$2" "$1}'; \
+      echo "erf_build cpu MPI NetCDF NoahMP RRTMGP"; echo "gpu none"; } | write-manifest.sh erf-cpu
+ENV PATH=/opt/erf/bin:$PATH ERF_DATA=/opt/erf/data
+WORKDIR /work
+CMD ["cat", "/opt/manifest.txt"]
